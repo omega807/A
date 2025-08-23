@@ -1,0 +1,5 @@
+{
+  "name": "AI Blog Post Writer",
+  "description": "An AI-powered assistant to research topics and generate platform-specific blog posts. It crafts insightful, engaging articles with images, links, and hashtags, tailored to your personal writing style and preferences.",
+  "requestFramePermissions": []
+}
