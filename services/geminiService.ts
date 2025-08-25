@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
-import type { Platform, UserProfile, ResearchData, ArticleContent, ArticleLink } from '../types';
+import type { Platform, UserProfile, ResearchData, ArticleContent, TopicIdea } from '../types';
 
 if (!process.env.API_KEY) {
     throw new Error("API_KEY environment variable not set");
@@ -7,23 +7,34 @@ if (!process.env.API_KEY) {
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-const parseJsonFromMarkdown = <T,>(markdownString: string): T => {
-    const jsonRegex = /```json\s*([\s\S]*?)\s*```/;
-    const match = markdownString.match(jsonRegex);
+export const exploreTopicIdeas = async (topic: string): Promise<TopicIdea[]> => {
+    const response: GenerateContentResponse = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: `You are an expert content strategist and SEO specialist. Brainstorm 5 creative and engaging article ideas based on the broad topic: "${topic}". For each idea, provide a catchy, SEO-friendly title, a unique angle or synopsis, and a list of 3-5 relevant keywords.`,
+        config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+                type: Type.ARRAY,
+                items: {
+                    type: Type.OBJECT,
+                    properties: {
+                        title: { type: Type.STRING, description: "A catchy, SEO-friendly title for the article." },
+                        angle: { type: Type.STRING, description: "A short (1-2 sentence) description of the unique angle or focus of the article." },
+                        keywords: { type: Type.ARRAY, items: { type: Type.STRING }, description: "A list of 3-5 relevant SEO keywords." },
+                    },
+                    required: ["title", "angle", "keywords"],
+                },
+            },
+        },
+    });
 
-    if (match && match[1]) {
-        try {
-            return JSON.parse(match[1]) as T;
-        } catch (error) {
-            console.error("Failed to parse JSON from markdown", error);
-            throw new Error("Invalid JSON format in the model's response.");
-        }
-    }
-    // Fallback for non-fenced JSON
     try {
-        return JSON.parse(markdownString) as T;
-    } catch(e) {
-       throw new Error("Could not find or parse JSON in the model's response.");
+        const jsonText = response.text.trim();
+        return JSON.parse(jsonText) as TopicIdea[];
+    } catch (e) {
+        console.error("Failed to parse topic ideas:", e);
+        console.error("Raw response:", response.text);
+        throw new Error("Failed to get valid topic ideas from AI.");
     }
 };
 
@@ -62,7 +73,8 @@ export const writeArticle = async (
     researchData: ResearchData, 
     userProfile: UserProfile,
     manualCount?: { min: string; max: string; type: 'words' | 'chars' },
-    regenerateLayout?: boolean
+    regenerateLayout?: boolean,
+    seoKeyword?: string
 ): Promise<ArticleContent> => {
     
     let platformConstraints: string;
@@ -101,10 +113,29 @@ ${platform.charCount ? `- Character Count Limit: ${platform.charCount} character
         **Author Profile:**
         - Writing Style: ${userProfile.style}
         - Tone of Voice: ${userProfile.tone}
+        - Language / Dialect: ${userProfile.language}
         - Target Audience: ${userProfile.audience}
 
         **Research Material (JSON):**
         ${JSON.stringify(researchData, null, 2)}
+        
+        ${seoKeyword ? `
+        ---
+
+        **SEO OPTIMIZATION STRATEGY (CRITICAL):**
+
+        The user has provided a target SEO keyword: "${seoKeyword}". You MUST optimize the article for this keyword.
+
+        1.  **SEO Title:** The main \`title\` MUST include the exact keyword "${seoKeyword}".
+        2.  **Meta Description:** Generate a compelling, clickable meta description between 120-155 characters. It MUST include the keyword "${seoKeyword}".
+        3.  **Related Keywords:** Generate a list of 3-5 semantically related keywords (LSI keywords) that support the main keyword.
+        4.  **Keyword Placement:**
+            -   Ensure the keyword "${seoKeyword}" appears naturally in at least one \`<h2>\` heading.
+            -   Integrate the keyword and related keywords throughout the body content.
+        5.  **SEO Analysis Checklist:** In the final JSON, populate the \`checklist\` object by verifying if the keyword is present in the generated title, meta description, headings, and main content. This is a crucial step; be accurate.
+
+        ---
+        ` : ''}
 
         ---
 
@@ -156,46 +187,70 @@ ${platform.charCount ? `- Character Count Limit: ${platform.charCount} character
         - Suggest 2-3 relevant external links (use placeholder URLs).
         - Generate the required \`visualPrompts\` array and place their corresponding \`<img>\` tags (with placeholder src) in the content.
     `;
+    
+    const responseSchema = {
+        type: Type.OBJECT,
+        properties: {
+            title: { type: Type.STRING, description: "A catchy title for the article." },
+            content: { type: Type.STRING, description: "The main body of the article, formatted as a single HTML string. It must include the complete <img> tags for all visuals, using [IMAGE_X] placeholders for their src attributes." },
+            hashtags: { type: Type.ARRAY, items: { type: Type.STRING }, description: "An array of hashtag strings (e.g., ['#topic', '#funfacts'])." },
+            links: { 
+                type: Type.ARRAY, 
+                items: { 
+                    type: Type.OBJECT, 
+                    properties: {
+                        text: { type: Type.STRING },
+                        url: { type: Type.STRING }
+                    },
+                    required: ["text", "url"]
+                }, 
+                description: "An array of link objects."
+            },
+            visualPrompts: {
+                type: Type.ARRAY,
+                description: "An array of prompts for generating visual elements.",
+                items: {
+                    type: Type.OBJECT,
+                    properties: {
+                        placeholder: { type: Type.STRING, description: "The placeholder ID used in the content, e.g., '[IMAGE_1]'." },
+                        type: { type: Type.STRING, description: "Type of visual, e.g., 'Photorealistic Image', 'Infographic'."},
+                        prompt: { type: Type.STRING, description: "A detailed DALL-E style prompt for the visual." }
+                    },
+                    required: ["placeholder", "type", "prompt"]
+                }
+            },
+            ...(seoKeyword && {
+                seoAnalysis: {
+                    type: Type.OBJECT,
+                    description: "An analysis of the article's SEO optimization for the target keyword.",
+                    properties: {
+                        metaDescription: { type: Type.STRING, description: "A compelling meta description (120-155 chars) including the keyword." },
+                        relatedKeywords: { type: Type.ARRAY, items: { type: Type.STRING }, description: "A list of 3-5 related LSI keywords." },
+                        checklist: {
+                            type: Type.OBJECT,
+                            properties: {
+                                titleContainsKeyword: { type: Type.BOOLEAN },
+                                metaDescriptionContainsKeyword: { type: Type.BOOLEAN },
+                                headingsContainKeyword: { type: Type.BOOLEAN },
+                                contentContainsKeyword: { type: Type.BOOLEAN }
+                            },
+                            required: ["titleContainsKeyword", "metaDescriptionContainsKeyword", "headingsContainKeyword", "contentContainsKeyword"]
+                        }
+                    },
+                    required: ["metaDescription", "relatedKeywords", "checklist"]
+                }
+            })
+        },
+        required: ["title", "content", "hashtags", "links", "visualPrompts"]
+    };
+
 
     const response: GenerateContentResponse = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
         contents: prompt,
         config: {
             responseMimeType: "application/json",
-            responseSchema: {
-                type: Type.OBJECT,
-                properties: {
-                    title: { type: Type.STRING, description: "A catchy title for the article." },
-                    content: { type: Type.STRING, description: "The main body of the article, formatted as a single HTML string. It must include the complete <img> tags for all visuals, using [IMAGE_X] placeholders for their src attributes." },
-                    hashtags: { type: Type.ARRAY, items: { type: Type.STRING }, description: "An array of hashtag strings (e.g., ['#topic', '#funfacts'])." },
-                    links: { 
-                        type: Type.ARRAY, 
-                        items: { 
-                            type: Type.OBJECT, 
-                            properties: {
-                                text: { type: Type.STRING },
-                                url: { type: Type.STRING }
-                            },
-                            required: ["text", "url"]
-                        }, 
-                        description: "An array of link objects."
-                    },
-                    visualPrompts: {
-                        type: Type.ARRAY,
-                        description: "An array of prompts for generating visual elements.",
-                        items: {
-                            type: Type.OBJECT,
-                            properties: {
-                                placeholder: { type: Type.STRING, description: "The placeholder ID used in the content, e.g., '[IMAGE_1]'." },
-                                type: { type: Type.STRING, description: "Type of visual, e.g., 'Photorealistic Image', 'Infographic'."},
-                                prompt: { type: Type.STRING, description: "A detailed DALL-E style prompt for the visual." }
-                            },
-                            required: ["placeholder", "type", "prompt"]
-                        }
-                    }
-                },
-                required: ["title", "content", "hashtags", "links", "visualPrompts"]
-            },
+            responseSchema: responseSchema,
         }
     });
 

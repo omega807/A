@@ -1,7 +1,7 @@
-
-import React from 'react';
+import React, { useRef } from 'react';
 import type { Article } from '../types';
 import { TrashIcon } from './icons/TrashIcon';
+import { ImportIcon } from './icons/ImportIcon';
 
 interface SavedArticlesDrawerProps {
     isOpen: boolean;
@@ -9,6 +9,7 @@ interface SavedArticlesDrawerProps {
     articles: Article[];
     onLoadArticle: (article: Article) => void;
     onDeleteArticle: (articleId: string) => void;
+    onImportArticles: (articles: Article[]) => void;
 }
 
 const SavedArticlesDrawer: React.FC<SavedArticlesDrawerProps> = ({
@@ -16,15 +17,49 @@ const SavedArticlesDrawer: React.FC<SavedArticlesDrawerProps> = ({
     onClose,
     articles,
     onLoadArticle,
-    onDeleteArticle
+    onDeleteArticle,
+    onImportArticles,
 }) => {
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
     if (!isOpen) return null;
+
+    const handleImportClick = () => {
+        fileInputRef.current?.click();
+    };
+
+    const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const content = e.target?.result;
+                if (typeof content !== 'string') throw new Error("File content is not a string");
+                const importedArticles = JSON.parse(content);
+                
+                // Basic validation
+                if (Array.isArray(importedArticles) && importedArticles.every(item => item.id && item.title && item.content)) {
+                    onImportArticles(importedArticles);
+                } else {
+                    alert("Invalid file format. Please import a valid JSON array of articles.");
+                }
+            } catch (error) {
+                console.error("Failed to import articles:", error);
+                alert("Failed to read or parse the file. Please ensure it's a valid JSON file.");
+            }
+        };
+        reader.readAsText(file);
+        // Reset file input
+        event.target.value = '';
+    };
 
     return (
         <div className="fixed inset-0 z-30" aria-labelledby="slide-over-title" role="dialog" aria-modal="true">
             {/* Background backdrop */}
             <div 
-                className="fixed inset-0 bg-gray-900 bg-opacity-75 transition-opacity" 
+                className="fixed inset-0 bg-gray-500 bg-opacity-75 dark:bg-gray-900 dark:bg-opacity-75 transition-opacity" 
                 onClick={onClose}
                 aria-hidden="true"
             ></div>
@@ -33,12 +68,27 @@ const SavedArticlesDrawer: React.FC<SavedArticlesDrawerProps> = ({
                 <div className="absolute inset-0 overflow-hidden">
                     <div className="pointer-events-none fixed inset-y-0 right-0 flex max-w-full pl-10">
                         <div className="pointer-events-auto w-screen max-w-md">
-                            <div className="flex h-full flex-col overflow-y-scroll bg-gray-800 shadow-xl">
-                                <div className="bg-gray-700 px-4 py-6 sm:px-6">
+                            <div className="flex h-full flex-col overflow-y-scroll bg-white dark:bg-gray-800 shadow-xl">
+                                <div className="bg-gray-50 dark:bg-gray-700 px-4 py-6 sm:px-6">
                                     <div className="flex items-center justify-between">
-                                        <h2 className="text-lg font-medium text-white" id="slide-over-title">Saved Articles</h2>
-                                        <div className="ml-3 flex h-7 items-center">
-                                            <button type="button" className="rounded-md bg-gray-700 text-gray-300 hover:text-white focus:outline-none focus:ring-2 focus:ring-white" onClick={onClose}>
+                                        <h2 className="text-lg font-medium text-gray-900 dark:text-white" id="slide-over-title">Saved Articles</h2>
+                                        <div className="ml-3 flex h-7 items-center space-x-4">
+                                            <input
+                                                type="file"
+                                                ref={fileInputRef}
+                                                onChange={handleFileChange}
+                                                accept=".json"
+                                                className="hidden"
+                                            />
+                                            <button 
+                                                type="button" 
+                                                className="rounded-md bg-transparent text-gray-500 dark:text-gray-300 hover:text-gray-800 dark:hover:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                onClick={handleImportClick}
+                                                title="Import Articles"
+                                            >
+                                                 <ImportIcon className="h-6 w-6" />
+                                            </button>
+                                            <button type="button" className="rounded-md bg-transparent text-gray-500 dark:text-gray-300 hover:text-gray-800 dark:hover:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" onClick={onClose}>
                                                 <span className="sr-only">Close panel</span>
                                                 <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" aria-hidden="true">
                                                     <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -49,19 +99,20 @@ const SavedArticlesDrawer: React.FC<SavedArticlesDrawerProps> = ({
                                 </div>
                                 <div className="relative mt-6 flex-1 px-4 sm:px-6">
                                     {articles.length === 0 ? (
-                                        <p className="text-gray-400">No saved articles yet.</p>
+                                        <p className="text-gray-500 dark:text-gray-400">No saved articles yet.</p>
                                     ) : (
                                         <ul className="space-y-4">
                                             {articles.map(article => (
-                                                <li key={article.id} className="bg-gray-700 p-4 rounded-lg flex items-center justify-between">
+                                                <li key={article.id} className="bg-gray-100 dark:bg-gray-700 p-4 rounded-lg flex items-center justify-between">
                                                     <div className="flex-1 min-w-0 cursor-pointer" onClick={() => onLoadArticle(article)}>
-                                                        <p className="text-sm font-medium text-blue-400 truncate">{article.platformName}</p>
-                                                        <p className="font-semibold text-white truncate">{article.title}</p>
-                                                        <p className="text-sm text-gray-400 truncate">{article.topic}</p>
+                                                        <p className="text-sm font-medium text-blue-600 dark:text-blue-400 truncate">{article.platformName}</p>
+                                                        <p className="font-semibold text-gray-900 dark:text-white truncate">{article.title}</p>
+                                                        <p className="text-sm text-gray-500 dark:text-gray-400 truncate">{article.topic}</p>
                                                     </div>
                                                     <button 
                                                         onClick={() => onDeleteArticle(article.id)}
-                                                        className="ml-4 p-2 rounded-full text-gray-400 hover:bg-red-800/50 hover:text-red-300 transition"
+                                                        className="ml-4 p-2 rounded-full text-gray-500 dark:text-gray-400 hover:bg-red-100 dark:hover:bg-red-800/50 hover:text-red-600 dark:hover:text-red-300 transition"
+                                                        title="Delete Article"
                                                     >
                                                         <TrashIcon className="w-5 h-5" />
                                                     </button>

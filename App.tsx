@@ -1,11 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { UserProfile as UserProfileType, Platform, Article, ArticleContent, GenerationStep, ResearchData } from './types';
+import { UserProfile as UserProfileType, Platform, Article, ArticleContent, GenerationStep, ResearchData, TopicIdea } from './types';
 import { PLATFORMS, DEFAULT_USER_PROFILE } from './constants';
 import { researchTopic, writeArticle, generateImage } from './services/geminiService';
 import UserProfile from './components/UserProfile';
 import ArticleDisplay from './components/ArticleDisplay';
 import SavedArticlesDrawer from './components/SavedArticlesDrawer';
+import SEOAnalysisDisplay from './components/SEOAnalysisDisplay';
+import TopicExplorer from './components/TopicExplorer';
 import { SparklesIcon } from './components/icons/SparklesIcon';
+import { MoonIcon } from './components/icons/MoonIcon';
+import { SunIcon } from './components/icons/SunIcon';
 
 const App: React.FC = () => {
     const [topic, setTopic] = useState<string>('');
@@ -26,8 +30,18 @@ const App: React.FC = () => {
     const [maxCount, setMaxCount] = useState<string>('');
     const [countType, setCountType] = useState<'words' | 'chars'>('words');
 
+    // State for SEO Assistant
+    const [seoKeyword, setSeoKeyword] = useState<string>('');
+    const [isSeoCollapsed, setIsSeoCollapsed] = useState<boolean>(true);
+
+    // State for theme
+    const [theme, setTheme] = useState<'light' | 'dark'>('light');
 
     useEffect(() => {
+        // Set theme from initial class on <html>
+        const isDark = document.documentElement.classList.contains('dark');
+        setTheme(isDark ? 'dark' : 'light');
+        
         try {
             const savedProfile = localStorage.getItem('userProfile');
             if (savedProfile) {
@@ -41,6 +55,19 @@ const App: React.FC = () => {
             console.error("Failed to parse from localStorage", e);
         }
     }, []);
+    
+    const toggleTheme = () => {
+        const newTheme = theme === 'light' ? 'dark' : 'light';
+        setTheme(newTheme);
+        if (newTheme === 'dark') {
+            document.documentElement.classList.add('dark');
+            localStorage.setItem('theme', 'dark');
+        } else {
+            document.documentElement.classList.remove('dark');
+            localStorage.setItem('theme', 'light');
+        }
+    };
+
 
     const handleProfileChange = useCallback((newProfile: UserProfileType) => {
         setUserProfile(newProfile);
@@ -90,7 +117,9 @@ const App: React.FC = () => {
                 platform,
                 researchData,
                 userProfile,
-                isManualCount ? { min: minCount, max: maxCount, type: countType } : undefined
+                isManualCount ? { min: minCount, max: maxCount, type: countType } : undefined,
+                false, // regenerateLayout
+                seoKeyword.trim() ? seoKeyword.trim() : undefined
             );
             updateStepStatus(1, 'complete');
             
@@ -119,6 +148,7 @@ const App: React.FC = () => {
                 imageUrls,
                 platformName: platform.name,
                 topic: topic,
+                seoKeywordUsed: seoKeyword.trim() ? seoKeyword.trim() : undefined,
             };
             setGeneratedArticle(finalArticle);
             updateStepStatus(3, 'complete');
@@ -152,7 +182,8 @@ const App: React.FC = () => {
                 lastResearchData,
                 userProfile,
                 isManualCount ? { min: minCount, max: maxCount, type: countType } : undefined,
-                true // Set regenerateLayout to true
+                true, // Set regenerateLayout to true
+                generatedArticle.seoKeywordUsed
             );
             
             const imageUrls = await Promise.all(
@@ -176,6 +207,7 @@ const App: React.FC = () => {
                 imageUrls,
                 platformName: platform.name,
                 topic: generatedArticle.topic,
+                seoKeywordUsed: generatedArticle.seoKeywordUsed,
             };
             setGeneratedArticle(finalArticle);
 
@@ -199,57 +231,121 @@ const App: React.FC = () => {
         localStorage.setItem('savedArticles', JSON.stringify(newSavedArticles));
     };
 
+    const handleImportArticles = (importedArticles: Article[]) => {
+        const articleMap = new Map<string, Article>();
+        // Add existing articles to map
+        savedArticles.forEach(article => articleMap.set(article.id, article));
+        // Add imported articles, overwriting duplicates
+        importedArticles.forEach(article => articleMap.set(article.id, article));
+        
+        const newSavedArticles = Array.from(articleMap.values());
+        setSavedArticles(newSavedArticles);
+        localStorage.setItem('savedArticles', JSON.stringify(newSavedArticles));
+        alert(`${importedArticles.length} articles imported successfully!`);
+        setIsDrawerOpen(false);
+    };
+
+
     const loadArticle = (article: Article) => {
         setGeneratedArticle(article);
+        setTopic(article.topic);
+        setSeoKeyword(article.seoKeywordUsed || '');
+        const foundPlatform = PLATFORMS.find(p => p.name === article.platformName) || PLATFORMS[0];
+        setPlatform(foundPlatform);
         setIsDrawerOpen(false);
     }
 
+    const handleIdeaSelect = (idea: TopicIdea) => {
+        setTopic(idea.title);
+        if (idea.keywords && idea.keywords.length > 0) {
+            setSeoKeyword(idea.keywords[0]);
+            setIsSeoCollapsed(false); // Open the SEO assistant
+        }
+    };
+
     return (
-        <div className="min-h-screen bg-gray-900 text-gray-200 font-sans">
-            <header className="bg-gray-800/50 backdrop-blur-sm sticky top-0 z-20 border-b border-gray-700">
+        <div className="min-h-screen bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200 font-sans">
+            <header className="bg-white/80 dark:bg-gray-800/50 backdrop-blur-sm sticky top-0 z-20 border-b border-gray-200 dark:border-gray-700">
                 <div className="container mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="flex items-center justify-between h-16">
                         <div className="flex items-center space-x-3">
-                            <SparklesIcon className="w-8 h-8 text-blue-400" />
-                            <h1 className="text-2xl font-bold tracking-tight text-white">AI Blog Post Writer</h1>
+                            <SparklesIcon className="w-8 h-8 text-blue-500 dark:text-blue-400" />
+                            <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">AI Content & SEO Strategist</h1>
                         </div>
-                        <button 
-                            onClick={() => setIsDrawerOpen(true)}
-                            className="px-4 py-2 text-sm font-medium text-white bg-gray-700 rounded-md hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-blue-500"
-                        >
-                            Saved Articles ({savedArticles.length})
-                        </button>
+                        <div className="flex items-center space-x-4">
+                            <button 
+                                onClick={toggleTheme}
+                                className="p-2 rounded-full text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-100 dark:focus:ring-offset-gray-900 focus:ring-blue-500"
+                                title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
+                            >
+                                {theme === 'light' ? <MoonIcon className="w-5 h-5" /> : <SunIcon className="w-5 h-5" />}
+                            </button>
+                            <button 
+                                onClick={() => setIsDrawerOpen(true)}
+                                className="px-4 py-2 text-sm font-medium text-white bg-gray-600 dark:bg-gray-700 rounded-md hover:bg-gray-700 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-100 dark:focus:ring-offset-gray-900 focus:ring-blue-500"
+                            >
+                                Saved Articles ({savedArticles.length})
+                            </button>
+                        </div>
                     </div>
                 </div>
             </header>
 
             <main className="container mx-auto p-4 sm:p-6 lg:p-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
                 <div className="lg:col-span-4 space-y-8">
+                    {/* --- TOPIC EXPLORER --- */}
+                    <TopicExplorer onIdeaSelect={handleIdeaSelect} />
+
                     {/* --- CONTROLS --- */}
-                    <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
-                        <h2 className="text-xl font-semibold mb-4 text-white">Create New Article</h2>
+                    <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-lg">
+                        <h2 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">Create New Article</h2>
                         <div className="space-y-6">
                             <div>
-                                <label htmlFor="topic" className="block text-sm font-medium text-gray-400 mb-1">Topic</label>
+                                <label htmlFor="topic" className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Topic</label>
                                 <textarea
                                     id="topic"
                                     value={topic}
                                     onChange={(e) => setTopic(e.target.value)}
                                     placeholder="e.g., The History of Artificial Intelligence"
-                                    className="w-full h-24 p-3 bg-gray-900 border border-gray-700 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                                    className="w-full h-24 p-3 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition text-gray-900 dark:text-white"
                                 />
                             </div>
                             <div>
-                                <label htmlFor="platform" className="block text-sm font-medium text-gray-400 mb-1">Target Platform</label>
+                                <label htmlFor="platform" className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Target Platform</label>
                                 <select
                                     id="platform"
                                     value={platform.name}
                                     onChange={(e) => setPlatform(PLATFORMS.find(p => p.name === e.target.value) || PLATFORMS[0])}
-                                    className="w-full p-3 bg-gray-900 border border-gray-700 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition appearance-none"
+                                    className="w-full p-3 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition appearance-none text-gray-900 dark:text-white"
                                 >
                                     {PLATFORMS.map(p => <option key={p.name}>{p.name}</option>)}
                                 </select>
                             </div>
+
+                            {/* --- SEO Assistant --- */}
+                            <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg border border-gray-300 dark:border-gray-700 overflow-hidden">
+                                <button
+                                    onClick={() => setIsSeoCollapsed(!isSeoCollapsed)}
+                                    className="w-full text-left p-3 flex justify-between items-center bg-gray-100 dark:bg-gray-700/50 hover:bg-gray-200 dark:hover:bg-gray-700 transition"
+                                >
+                                    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">SEO Assistant</h3>
+                                    <svg className={`w-5 h-5 transform transition-transform text-gray-500 dark:text-gray-400 ${isSeoCollapsed ? 'rotate-0' : 'rotate-180'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                                </button>
+                                {!isSeoCollapsed && (
+                                     <div className="p-4 space-y-2">
+                                        <label htmlFor="seo-keyword" className="block text-sm font-medium text-gray-600 dark:text-gray-400">Target SEO Keyword (Optional)</label>
+                                        <input
+                                            type="text"
+                                            id="seo-keyword"
+                                            value={seoKeyword}
+                                            onChange={(e) => setSeoKeyword(e.target.value)}
+                                            placeholder="e.g., benefits of machine learning"
+                                            className="w-full p-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-sm text-gray-900 dark:text-white"
+                                        />
+                                    </div>
+                                )}
+                            </div>
+
 
                             {/* --- Custom Length Controls --- */}
                             <div className="pt-2">
@@ -259,20 +355,20 @@ const App: React.FC = () => {
                                         id="manual-count"
                                         checked={isManualCount}
                                         onChange={(e) => setIsManualCount(e.target.checked)}
-                                        className="h-4 w-4 rounded border-gray-600 bg-gray-900 text-blue-600 focus:ring-blue-500"
+                                        className="h-4 w-4 rounded border-gray-400 dark:border-gray-600 bg-gray-100 dark:bg-gray-900 text-blue-600 focus:ring-blue-500"
                                     />
-                                    <label htmlFor="manual-count" className="ml-2 block text-sm text-gray-400">
+                                    <label htmlFor="manual-count" className="ml-2 block text-sm text-gray-600 dark:text-gray-400">
                                         Set custom length
                                     </label>
                                 </div>
                                 {isManualCount && (
-                                    <div className="mt-3 space-y-3 p-4 bg-gray-900/50 rounded-md border border-gray-700 animate-fade-in-fast">
+                                    <div className="mt-3 space-y-3 p-4 bg-gray-100/50 dark:bg-gray-900/50 rounded-md border border-gray-300 dark:border-gray-700 animate-fade-in-fast">
                                         <div>
-                                            <label className="block text-xs font-medium text-gray-500 mb-1">Count By</label>
+                                            <label className="block text-xs font-medium text-gray-500 dark:text-gray-500 mb-1">Count By</label>
                                             <select
                                                 value={countType}
                                                 onChange={(e) => setCountType(e.target.value as 'words' | 'chars')}
-                                                className="w-full p-2 bg-gray-800 border border-gray-600 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-sm appearance-none"
+                                                className="w-full p-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-sm appearance-none text-gray-900 dark:text-white"
                                             >
                                                 <option value="words">Words</option>
                                                 <option value="chars">Characters</option>
@@ -280,7 +376,7 @@ const App: React.FC = () => {
                                         </div>
                                         <div className="flex items-center gap-4">
                                             <div className="flex-1">
-                                                <label htmlFor="min-count" className="block text-xs font-medium text-gray-500 mb-1">Min</label>
+                                                <label htmlFor="min-count" className="block text-xs font-medium text-gray-500 dark:text-gray-500 mb-1">Min</label>
                                                 <input
                                                     type="number"
                                                     id="min-count"
@@ -288,11 +384,11 @@ const App: React.FC = () => {
                                                     min="0"
                                                     onChange={(e) => setMinCount(e.target.value)}
                                                     placeholder="e.g., 500"
-                                                    className="w-full p-2 bg-gray-800 border border-gray-600 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                                                    className="w-full p-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-sm text-gray-900 dark:text-white"
                                                 />
                                             </div>
                                             <div className="flex-1">
-                                                <label htmlFor="max-count" className="block text-xs font-medium text-gray-500 mb-1">Max</label>
+                                                <label htmlFor="max-count" className="block text-xs font-medium text-gray-500 dark:text-gray-500 mb-1">Max</label>
                                                 <input
                                                     type="number"
                                                     id="max-count"
@@ -300,7 +396,7 @@ const App: React.FC = () => {
                                                     min="0"
                                                     onChange={(e) => setMaxCount(e.target.value)}
                                                     placeholder="e.g., 1000"
-                                                    className="w-full p-2 bg-gray-800 border border-gray-600 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                                                    className="w-full p-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-sm text-gray-900 dark:text-white"
                                                 />
                                             </div>
                                         </div>
@@ -332,11 +428,20 @@ const App: React.FC = () => {
                     </div>
                     {/* --- USER PROFILE --- */}
                     <UserProfile profile={userProfile} onProfileChange={handleProfileChange} />
+
+                    {/* --- SEO ANALYSIS --- */}
+                    {generatedArticle?.seoAnalysis && generatedArticle?.seoKeywordUsed && (
+                       <SEOAnalysisDisplay 
+                            analysis={generatedArticle.seoAnalysis} 
+                            keyword={generatedArticle.seoKeywordUsed}
+                        />
+                    )}
+
                 </div>
                 
                 <div className="lg:col-span-8">
                     {error && (
-                        <div className="bg-red-900/50 border border-red-700 text-red-300 px-4 py-3 rounded-lg mb-6" role="alert">
+                        <div className="bg-red-100 dark:bg-red-900/50 border border-red-400 dark:border-red-700 text-red-700 dark:text-red-300 px-4 py-3 rounded-lg mb-6" role="alert">
                             <strong className="font-bold">Error: </strong>
                             <span className="block sm:inline">{error}</span>
                         </div>
@@ -359,6 +464,7 @@ const App: React.FC = () => {
                 articles={savedArticles}
                 onLoadArticle={loadArticle}
                 onDeleteArticle={handleDeleteArticle}
+                onImportArticles={handleImportArticles}
             />
         </div>
     );

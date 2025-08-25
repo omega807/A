@@ -8,6 +8,7 @@ export interface UserProfile {
     style: string;
     tone: string;
     audience: string;
+    language: string;
 }
 
 export interface ResearchData {
@@ -27,12 +28,24 @@ export interface VisualPrompt {
     prompt: string;
 }
 
+export interface SEOAnalysis {
+    metaDescription: string;
+    relatedKeywords: string[];
+    checklist: {
+        titleContainsKeyword: boolean;
+        metaDescriptionContainsKeyword: boolean;
+        headingsContainKeyword: boolean;
+        contentContainsKeyword: boolean;
+    };
+}
+
 export interface ArticleContent {
     title: string;
     content: string;
     hashtags: string[];
     links: ArticleLink[];
     visualPrompts: VisualPrompt[];
+    seoAnalysis?: SEOAnalysis;
 }
 
 export interface Article extends ArticleContent {
@@ -40,9 +53,16 @@ export interface Article extends ArticleContent {
     imageUrls: string[];
     platformName: string;
     topic: string;
+    seoKeywordUsed?: string;
 }
 
 export interface GenerationStep {
     title: string;
     status: 'pending' | 'in-progress' | 'complete' | 'error';
+}
+
+export interface TopicIdea {
+    title: string;
+    angle: string;
+    keywords: string[];
 }

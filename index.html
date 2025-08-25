@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AI Blog Post Writer</title>
+    <title>AI Content & SEO Strategist</title>
     <script src="https://cdn.tailwindcss.com"></script>
   <script type="importmap">
 {
@@ -12,9 +12,18 @@
     "react": "https://esm.sh/react@^19.1.1",
     "react-dom/": "https://esm.sh/react-dom@^19.1.1/",
     "react/": "https://esm.sh/react@^19.1.1/",
-    "@google/genai": "https://esm.sh/@google/genai@^1.15.0"
+    "@google/genai": "https://esm.sh/@google/genai@^1.15.0",
+    "turndown": "https://esm.sh/turndown@7.1.3"
   }
 }
+</script>
+<script>
+  // Set theme on initial load to prevent flash of wrong theme
+  if (localStorage.getItem('theme') === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+    document.documentElement.classList.add('dark')
+  } else {
+    document.documentElement.classList.remove('dark')
+  }
 </script>
 <style>
   @keyframes fadeIn {
@@ -29,16 +38,16 @@
   }
   /* --- Article Styles --- */
   /* Ensure proper spacing between paragraphs */
-  .prose-invert p {
+  .prose p, .dark .prose-invert p {
     margin-bottom: 1.25em;
   }
-  .prose-invert h2, .prose-invert h3 {
+  .prose h2, .prose h3, .dark .prose-invert h2, .dark .prose-invert h3 {
     font-weight: 700; /* Bold headings */
   }
   /* Custom styles for article "pop-out" sections */
-  .prose-invert blockquote {
-    background-color: rgba(255, 255, 255, 0.05);
-    border-left-color: #60a5fa; /* Corresponds to Tailwind's blue-400 */
+  .prose blockquote, .dark .prose-invert blockquote {
+    background-color: rgba(0, 0, 0, 0.03);
+    border-left-color: #3b82f6; /* Corresponds to Tailwind's blue-500 */
     border-left-width: 4px;
     padding-top: 0.5rem;
     padding-bottom: 0.5rem;
@@ -50,12 +59,18 @@
     margin-top: 2rem; /* Add spacing */
     margin-bottom: 2rem; /* Add spacing */
   }
-  .prose-invert blockquote p:first-of-type::before,
-  .prose-invert blockquote p:last-of-type::after {
+  .dark .prose-invert blockquote {
+    background-color: rgba(255, 255, 255, 0.05);
+    border-left-color: #60a5fa; /* Corresponds to Tailwind's blue-400 */
+  }
+  .prose blockquote p:first-of-type::before,
+  .prose blockquote p:last-of-type::after,
+  .dark .prose-invert blockquote p:first-of-type::before,
+  .dark .prose-invert blockquote p:last-of-type::after {
     content: none;
   }
   /* New styles for magazine-style Pull Quotes */
-  .prose-invert blockquote.pull-quote {
+  .prose blockquote.pull-quote, .dark .prose-invert blockquote.pull-quote {
       text-align: center;
       border: none;
       background-color: transparent;
@@ -63,26 +78,35 @@
       margin: 2.5rem auto;
       max-width: 80%;
   }
-  .prose-invert blockquote.pull-quote p {
+  .prose blockquote.pull-quote p, .dark .prose-invert blockquote.pull-quote p {
       font-size: 1.5rem; /* large text */
       font-style: italic;
       font-weight: 300; /* lighter weight */
-      color: #d1d5db; /* gray-300 */
+      color: #4b5563; /* gray-600 */
       line-height: 1.4;
       margin-bottom: 0; /* Reset paragraph margin for pull quotes */
   }
+  .dark .prose-invert blockquote.pull-quote p {
+      color: #d1d5db; /* gray-300 */
+  }
   /* Decorative lines */
-  .prose-invert blockquote.pull-quote::before,
-  .prose-invert blockquote.pull-quote::after {
+  .prose blockquote.pull-quote::before,
+  .prose blockquote.pull-quote::after,
+  .dark .prose-invert blockquote.pull-quote::before,
+  .dark .prose-invert blockquote.pull-quote::after {
       content: '';
       display: block;
       width: 80px;
       height: 2px;
-      background-color: #60a5fa; /* blue-400 */
+      background-color: #3b82f6; /* blue-500 */
       margin: 1rem auto;
   }
+  .dark .prose-invert blockquote.pull-quote::before,
+  .dark .prose-invert blockquote.pull-quote::after {
+      background-color: #60a5fa; /* blue-400 */
+  }
   /* Styles for embedded images */
-  .prose-invert img {
+  .prose img, .dark .prose-invert img {
     width: 100%;
     border-radius: 0.75rem; /* lg */
     margin-top: 2rem;
@@ -100,17 +124,18 @@
   }
   
   /* Floating images overrides */
-  .prose-invert .img-float-left, .prose-invert .img-float-right {
+  .prose .img-float-left, .prose .img-float-right,
+  .dark .prose-invert .img-float-left, .dark .prose-invert .img-float-right {
     max-width: 45%;
     width: auto;
     box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
   }
-  .prose-invert .img-float-left {
+  .prose .img-float-left, .dark .prose-invert .img-float-left {
     float: left;
     margin-right: 1.5rem;
     margin-bottom: 0.5rem;
   }
-  .prose-invert .img-float-right {
+  .prose .img-float-right, .dark .prose-invert .img-float-right {
     float: right;
     margin-left: 1.5rem;
     margin-bottom: 0.5rem;
@@ -123,7 +148,7 @@
 
 </style>
 </head>
-  <body class="bg-gray-900">
+  <body class="bg-gray-100 dark:bg-gray-900">
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
   </body>
