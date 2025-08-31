@@ -1,11 +1,45 @@
 import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
-import type { Platform, UserProfile, ResearchData, ArticleContent, TopicIdea } from '../types';
+import type { Platform, UserProfile, ResearchData, ArticleContent, TopicIdea, KeywordSuggestion } from '../types';
 
 if (!process.env.API_KEY) {
     throw new Error("API_KEY environment variable not set");
 }
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+export const findKeywords = async (topic: string): Promise<KeywordSuggestion[]> => {
+    const response: GenerateContentResponse = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: `You are an expert SEO strategist. For the topic "${topic}", generate a list of 5-7 keyword suggestions.
+        - Include 2-3 "Primary" keywords that are broad and have high traffic potential.
+        - Include 3-4 "Secondary" (long-tail) keywords that are more specific.
+        - For each keyword, determine the likely user "intent" (e.g., Informational, Commercial, Navigational).
+        `,
+        config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+                type: Type.ARRAY,
+                items: {
+                    type: Type.OBJECT,
+                    properties: {
+                        keyword: { type: Type.STRING },
+                        type: { type: Type.STRING, description: "'Primary' or 'Secondary'" },
+                        intent: { type: Type.STRING, description: "The likely user search intent." }
+                    },
+                    required: ["keyword", "type", "intent"]
+                }
+            }
+        }
+    });
+
+    try {
+        const jsonText = response.text.trim();
+        return JSON.parse(jsonText) as KeywordSuggestion[];
+    } catch (e) {
+        console.error("Failed to parse keywords:", e);
+        throw new Error("Failed to get valid keywords from AI.");
+    }
+};
 
 export const exploreTopicIdeas = async (topic: string): Promise<TopicIdea[]> => {
     const response: GenerateContentResponse = await ai.models.generateContent({
@@ -103,7 +137,7 @@ ${platform.charCount ? `- Character Count Limit: ${platform.charCount} character
 
 
     const prompt = `
-        You are an expert blog post writer and content strategist, thinking like the creative director of a modern online magazine (like Wired or The Verge). Your goal is to create highly readable, engaging, and visually dynamic content.
+        You are an expert blog post writer and SEO strategist, thinking like the creative director of a modern online magazine (like Wired or The Verge). Your goal is to create highly readable, engaging, and visually dynamic content.
 
         **Topic:** "${topic}"
 
@@ -124,16 +158,20 @@ ${platform.charCount ? `- Character Count Limit: ${platform.charCount} character
 
         **SEO OPTIMIZATION STRATEGY (CRITICAL):**
 
-        The user has provided a target SEO keyword: "${seoKeyword}". You MUST optimize the article for this keyword.
+        The user has provided a target SEO keyword: "${seoKeyword}". You MUST perform a deep SEO analysis and optimize the article for this keyword.
 
-        1.  **SEO Title:** The main \`title\` MUST include the exact keyword "${seoKeyword}".
-        2.  **Meta Description:** Generate a compelling, clickable meta description between 120-155 characters. It MUST include the keyword "${seoKeyword}".
-        3.  **Related Keywords:** Generate a list of 3-5 semantically related keywords (LSI keywords) that support the main keyword.
-        4.  **Keyword Placement:**
-            -   Ensure the keyword "${seoKeyword}" appears naturally in at least one \`<h2>\` heading.
-            -   Integrate the keyword and related keywords throughout the body content.
-        5.  **SEO Analysis Checklist:** In the final JSON, populate the \`checklist\` object by verifying if the keyword is present in the generated title, meta description, headings, and main content. This is a crucial step; be accurate.
+        1.  **Analyze and Optimize:**
+            -   **Title:** The main \`title\` MUST include the exact keyword.
+            -   **Meta Description:** Generate a compelling, clickable meta description (120-155 characters) including the keyword.
+            -   **Keyword Placement:** Ensure the keyword appears naturally in at least one \`<h2>\` heading and within the first 150 words of the article. Integrate it a few more times throughout the body content, but avoid keyword stuffing.
+            -   **Related Keywords:** Generate a list of 3-5 semantically related keywords (LSI keywords) that support the main keyword and include some in the content.
+            -   **Readability:** Analyze the generated text. Aim for a reading level around 8th-10th grade. Provide a one-sentence note on the readability.
 
+        2.  **Generate SEO Analysis Object:** Based on your optimization, create the \`seoAnalysis\` object.
+            -   **Score:** Provide an overall SEO score from 0-100 based on how well you were able to implement these optimizations.
+            -   **Checklist with Recommendations:** For each item in the checklist, provide a status ('Pass', 'Needs Improvement', 'Fail') and a specific, ACTIONABLE recommendation. If the status is 'Pass', the recommendation should be a brief confirmation.
+                -   *Example Fail:* { "check": "Keyword in Title", "status": "Fail", "recommendation": "The title does not contain the keyword. Consider changing it to 'The Benefits of ${seoKeyword} for Beginners'." }
+                -   *Example Pass:* { "check": "Keyword in Title", "status": "Pass", "recommendation": "The title successfully includes the target keyword." }
         ---
         ` : ''}
 
@@ -224,20 +262,31 @@ ${platform.charCount ? `- Character Count Limit: ${platform.charCount} character
                     type: Type.OBJECT,
                     description: "An analysis of the article's SEO optimization for the target keyword.",
                     properties: {
+                        score: { type: Type.NUMBER, description: "An overall SEO score from 0 to 100." },
                         metaDescription: { type: Type.STRING, description: "A compelling meta description (120-155 chars) including the keyword." },
                         relatedKeywords: { type: Type.ARRAY, items: { type: Type.STRING }, description: "A list of 3-5 related LSI keywords." },
-                        checklist: {
+                        readability: {
                             type: Type.OBJECT,
                             properties: {
-                                titleContainsKeyword: { type: Type.BOOLEAN },
-                                metaDescriptionContainsKeyword: { type: Type.BOOLEAN },
-                                headingsContainKeyword: { type: Type.BOOLEAN },
-                                contentContainsKeyword: { type: Type.BOOLEAN }
+                                level: { type: Type.STRING, description: "e.g., 'Grade 9'" },
+                                notes: { type: Type.STRING, description: "A brief note on the content's readability." }
                             },
-                            required: ["titleContainsKeyword", "metaDescriptionContainsKeyword", "headingsContainKeyword", "contentContainsKeyword"]
+                            required: ["level", "notes"]
+                        },
+                        checklist: {
+                            type: Type.ARRAY,
+                            items: {
+                                type: Type.OBJECT,
+                                properties: {
+                                    check: { type: Type.STRING },
+                                    status: { type: Type.STRING, description: "'Pass', 'Needs Improvement', or 'Fail'" },
+                                    recommendation: { type: Type.STRING, description: "A specific, actionable recommendation." }
+                                },
+                                required: ["check", "status", "recommendation"]
+                            }
                         }
                     },
-                    required: ["metaDescription", "relatedKeywords", "checklist"]
+                    required: ["score", "metaDescription", "relatedKeywords", "readability", "checklist"]
                 }
             })
         },
@@ -273,7 +322,7 @@ export const generateImage = async (prompt: string): Promise<string> => {
     // Add context to the prompt for better results
     const fullPrompt = `High-resolution, cinematic lighting, professional photography of: ${prompt}. If the prompt describes a chart or infographic, create a clean, modern, and visually appealing representation of it.`;
     const response = await ai.models.generateImages({
-        model: 'imagen-3.0-generate-002',
+        model: 'imagen-4.0-generate-001',
         prompt: fullPrompt,
         config: {
             numberOfImages: 1,

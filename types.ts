@@ -28,15 +28,21 @@ export interface VisualPrompt {
     prompt: string;
 }
 
+export interface SEOChecklistItem {
+    check: string;
+    status: 'Pass' | 'Needs Improvement' | 'Fail';
+    recommendation: string;
+}
+
 export interface SEOAnalysis {
+    score: number;
     metaDescription: string;
     relatedKeywords: string[];
-    checklist: {
-        titleContainsKeyword: boolean;
-        metaDescriptionContainsKeyword: boolean;
-        headingsContainKeyword: boolean;
-        contentContainsKeyword: boolean;
+    readability: {
+        level: string;
+        notes: string;
     };
+    checklist: SEOChecklistItem[];
 }
 
 export interface ArticleContent {
@@ -65,4 +71,10 @@ export interface TopicIdea {
     title: string;
     angle: string;
     keywords: string[];
+}
+
+export interface KeywordSuggestion {
+    keyword: string;
+    type: 'Primary' | 'Secondary';
+    intent: string;
 }

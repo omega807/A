@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { UserProfile as UserProfileType, Platform, Article, ArticleContent, GenerationStep, ResearchData, TopicIdea } from './types';
+import { UserProfile as UserProfileType, Platform, Article, ArticleContent, GenerationStep, ResearchData, TopicIdea, KeywordSuggestion } from './types';
 import { PLATFORMS, DEFAULT_USER_PROFILE } from './constants';
 import { researchTopic, writeArticle, generateImage } from './services/geminiService';
 import UserProfile from './components/UserProfile';
 import ArticleDisplay from './components/ArticleDisplay';
 import SavedArticlesDrawer from './components/SavedArticlesDrawer';
-import SEOAnalysisDisplay from './components/SEOAnalysisDisplay';
+import SEOWorkbench from './components/SEOWorkbench';
 import TopicExplorer from './components/TopicExplorer';
 import { SparklesIcon } from './components/icons/SparklesIcon';
 import { MoonIcon } from './components/icons/MoonIcon';
@@ -259,8 +259,11 @@ const App: React.FC = () => {
         setTopic(idea.title);
         if (idea.keywords && idea.keywords.length > 0) {
             setSeoKeyword(idea.keywords[0]);
-            setIsSeoCollapsed(false); // Open the SEO assistant
         }
+    };
+    
+    const handleKeywordSelect = (keyword: KeywordSuggestion) => {
+        setSeoKeyword(keyword.keyword);
     };
 
     return (
@@ -321,31 +324,6 @@ const App: React.FC = () => {
                                     {PLATFORMS.map(p => <option key={p.name}>{p.name}</option>)}
                                 </select>
                             </div>
-
-                            {/* --- SEO Assistant --- */}
-                            <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg border border-gray-300 dark:border-gray-700 overflow-hidden">
-                                <button
-                                    onClick={() => setIsSeoCollapsed(!isSeoCollapsed)}
-                                    className="w-full text-left p-3 flex justify-between items-center bg-gray-100 dark:bg-gray-700/50 hover:bg-gray-200 dark:hover:bg-gray-700 transition"
-                                >
-                                    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">SEO Assistant</h3>
-                                    <svg className={`w-5 h-5 transform transition-transform text-gray-500 dark:text-gray-400 ${isSeoCollapsed ? 'rotate-0' : 'rotate-180'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
-                                </button>
-                                {!isSeoCollapsed && (
-                                     <div className="p-4 space-y-2">
-                                        <label htmlFor="seo-keyword" className="block text-sm font-medium text-gray-600 dark:text-gray-400">Target SEO Keyword (Optional)</label>
-                                        <input
-                                            type="text"
-                                            id="seo-keyword"
-                                            value={seoKeyword}
-                                            onChange={(e) => setSeoKeyword(e.target.value)}
-                                            placeholder="e.g., benefits of machine learning"
-                                            className="w-full p-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-sm text-gray-900 dark:text-white"
-                                        />
-                                    </div>
-                                )}
-                            </div>
-
 
                             {/* --- Custom Length Controls --- */}
                             <div className="pt-2">
@@ -429,13 +407,13 @@ const App: React.FC = () => {
                     {/* --- USER PROFILE --- */}
                     <UserProfile profile={userProfile} onProfileChange={handleProfileChange} />
 
-                    {/* --- SEO ANALYSIS --- */}
-                    {generatedArticle?.seoAnalysis && generatedArticle?.seoKeywordUsed && (
-                       <SEOAnalysisDisplay 
-                            analysis={generatedArticle.seoAnalysis} 
-                            keyword={generatedArticle.seoKeywordUsed}
-                        />
-                    )}
+                    {/* --- SEO WORKBENCH --- */}
+                    <SEOWorkbench
+                        topic={topic}
+                        selectedKeyword={seoKeyword}
+                        onKeywordSelect={handleKeywordSelect}
+                        analysis={generatedArticle?.seoAnalysis ?? null}
+                    />
 
                 </div>
                 
