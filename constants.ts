@@ -16,5 +16,5 @@ export const DEFAULT_USER_PROFILE: UserProfile = {
     style: 'Informative and engaging',
     tone: 'Professional yet approachable',
     audience: 'General audience with an interest in technology',
-    language: 'American English',
+    language: 'British English',
 };

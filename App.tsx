@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { UserProfile as UserProfileType, Platform, Article, ArticleContent, GenerationStep, ResearchData, TopicIdea, KeywordSuggestion } from './types';
+import { UserProfile as UserProfileType, Platform, Article, ArticleContent, GenerationStep, ResearchData, TopicIdea, KeywordSuggestion, ArticlePlan } from './types';
 import { PLATFORMS, DEFAULT_USER_PROFILE } from './constants';
-import { researchTopic, writeArticle, generateImage } from './services/geminiService';
+import { researchTopic, generateArticlePlan, streamArticleContent, generateImage } from './services/geminiService';
 import UserProfile from './components/UserProfile';
 import ArticleDisplay from './components/ArticleDisplay';
 import SavedArticlesDrawer from './components/SavedArticlesDrawer';
@@ -10,8 +10,14 @@ import TopicExplorer from './components/TopicExplorer';
 import { SparklesIcon } from './components/icons/SparklesIcon';
 import { MoonIcon } from './components/icons/MoonIcon';
 import { SunIcon } from './components/icons/SunIcon';
+import { LightbulbIcon } from './components/icons/LightbulbIcon';
+import { SEOWorkbenchIcon } from './components/icons/SEOWorkbenchIcon';
+import { StatusIcon } from './components/icons/StatusIcon';
+
+type Tab = 'composer' | 'research' | 'optimise';
 
 const App: React.FC = () => {
+    const [activeTab, setActiveTab] = useState<Tab>('composer');
     const [topic, setTopic] = useState<string>('');
     const [platform, setPlatform] = useState<Platform>(PLATFORMS[0]);
     const [userProfile, setUserProfile] = useState<UserProfileType>(DEFAULT_USER_PROFILE);
@@ -24,413 +30,284 @@ const App: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [isDrawerOpen, setIsDrawerOpen] = useState<boolean>(false);
     
-    // State for custom length controls
     const [isManualCount, setIsManualCount] = useState<boolean>(false);
     const [minCount, setMinCount] = useState<string>('');
     const [maxCount, setMaxCount] = useState<string>('');
     const [countType, setCountType] = useState<'words' | 'chars'>('words');
-
-    // State for SEO Assistant
     const [seoKeyword, setSeoKeyword] = useState<string>('');
-    const [isSeoCollapsed, setIsSeoCollapsed] = useState<boolean>(true);
-
-    // State for theme
-    const [theme, setTheme] = useState<'light' | 'dark'>('light');
+    const [theme, setTheme] = useState<'light' | 'dark'>('dark');
 
     useEffect(() => {
-        // Set theme from initial class on <html>
         const isDark = document.documentElement.classList.contains('dark');
         setTheme(isDark ? 'dark' : 'light');
-        
         try {
             const savedProfile = localStorage.getItem('userProfile');
-            if (savedProfile) {
-                setUserProfile(JSON.parse(savedProfile));
-            }
+            if (savedProfile) setUserProfile(JSON.parse(savedProfile));
             const articlesFromStorage = localStorage.getItem('savedArticles');
-            if (articlesFromStorage) {
-                setSavedArticles(JSON.parse(articlesFromStorage));
-            }
+            if (articlesFromStorage) setSavedArticles(JSON.parse(articlesFromStorage));
         } catch (e) {
-            console.error("Failed to parse from localStorage", e);
+            console.error(e);
         }
     }, []);
     
     const toggleTheme = () => {
         const newTheme = theme === 'light' ? 'dark' : 'light';
         setTheme(newTheme);
-        if (newTheme === 'dark') {
-            document.documentElement.classList.add('dark');
-            localStorage.setItem('theme', 'dark');
-        } else {
-            document.documentElement.classList.remove('dark');
-            localStorage.setItem('theme', 'light');
-        }
+        document.documentElement.classList.toggle('dark', newTheme === 'dark');
+        localStorage.setItem('theme', newTheme);
     };
-
 
     const handleProfileChange = useCallback((newProfile: UserProfileType) => {
         setUserProfile(newProfile);
-        try {
-            localStorage.setItem('userProfile', JSON.stringify(newProfile));
-        } catch (e) {
-            console.error("Failed to save profile to localStorage", e);
-        }
+        localStorage.setItem('userProfile', JSON.stringify(newProfile));
     }, []);
 
     const updateStepStatus = useCallback((index: number, status: GenerationStep['status']) => {
-        setGenerationSteps(prevSteps => {
-            const newSteps = [...prevSteps];
-            if (newSteps[index]) {
-                newSteps[index].status = status;
-            }
-            return newSteps;
+        setGenerationSteps(prev => {
+            const next = [...prev];
+            if (next[index]) next[index].status = status;
+            return next;
         });
     }, []);
 
-    const handleGenerateArticle = async () => {
-        if (!topic.trim()) {
+    const executeGeneration = async (isRegeneration: boolean) => {
+        if (!isRegeneration && !topic.trim()) {
             setError('Please enter a topic.');
             return;
         }
+        const currentTopic = isRegeneration ? generatedArticle!.topic : topic;
+        const currentSeoKeyword = isRegeneration ? generatedArticle!.seoKeywordUsed : seoKeyword.trim() || undefined;
+
         setIsLoading(true);
         setError(null);
-        setGeneratedArticle(null);
-
+        if (!isRegeneration) setGeneratedArticle(null);
+        
         const initialSteps: GenerationStep[] = [
-            { title: 'Researching topic', status: 'pending' },
-            { title: 'Writing the article', status: 'pending' },
-            { title: 'Generating visuals', status: 'pending' },
-            { title: 'Finalizing post', status: 'pending' },
+            { title: 'Intelligence Gathering', status: 'pending' },
+            { title: 'Structural Blueprinting', status: 'pending' },
+            { title: 'Content Synthesis', status: 'pending' },
+            { title: 'Visual Rendering', status: 'pending' },
+            { title: 'System Finalisation', status: 'pending' },
         ];
         setGenerationSteps(initialSteps);
-
+        
         try {
-            updateStepStatus(0, 'in-progress');
-            const researchData = await researchTopic(topic);
-            setLastResearchData(researchData);
-            updateStepStatus(0, 'complete');
+            let researchData: ResearchData;
+            if (isRegeneration && lastResearchData) {
+                researchData = lastResearchData;
+            } else {
+                updateStepStatus(0, 'in-progress');
+                researchData = await researchTopic(currentTopic);
+                setLastResearchData(researchData);
+                updateStepStatus(0, 'complete');
+            }
             
             updateStepStatus(1, 'in-progress');
-            const articleContent: ArticleContent = await writeArticle(
-                topic,
+            const articlePlan: ArticlePlan = await generateArticlePlan(
+                currentTopic,
                 platform,
                 researchData,
                 userProfile,
                 isManualCount ? { min: minCount, max: maxCount, type: countType } : undefined,
-                false, // regenerateLayout
-                seoKeyword.trim() ? seoKeyword.trim() : undefined
+                currentSeoKeyword
             );
             updateStepStatus(1, 'complete');
+
+            const initialArticle: Article = {
+                id: Date.now().toString(),
+                content: '',
+                ...articlePlan,
+                imageUrls: [],
+                platformName: platform.name,
+                topic: currentTopic,
+                seoKeywordUsed: currentSeoKeyword,
+            };
+            setGeneratedArticle(initialArticle);
             
             updateStepStatus(2, 'in-progress');
-            const imageUrls = await Promise.all(
-                articleContent.visualPrompts.map(p => generateImage(p.prompt))
+            const contentStream = streamArticleContent(
+                articlePlan,
+                platform,
+                researchData,
+                userProfile,
+                isManualCount ? { min: minCount, max: maxCount, type: countType } : undefined,
+                isRegeneration
             );
             
-            let finalContent = articleContent.content;
-            articleContent.visualPrompts.forEach((prompt, index) => {
+            let finalContent = '';
+            for await (const chunk of contentStream) {
+                finalContent += chunk;
+                setGeneratedArticle(prev => prev ? { ...prev, content: finalContent } : null);
+            }
+            updateStepStatus(2, 'complete');
+
+            updateStepStatus(3, 'in-progress');
+            const imageUrls = await Promise.all(
+                articlePlan.visualPrompts.map(p => generateImage(p.prompt))
+            );
+            
+            let contentWithImages = finalContent;
+            articlePlan.visualPrompts.forEach((prompt, index) => {
                 const imageUrl = imageUrls[index];
                 if(imageUrl) {
                     const placeholderSrc = `src="${prompt.placeholder}"`;
                     const finalImgTagPortion = `src="${imageUrl}" alt="${prompt.prompt.substring(0, 100)}"`;
-                    finalContent = finalContent.replace(placeholderSrc, finalImgTagPortion);
+                    contentWithImages = contentWithImages.replace(placeholderSrc, finalImgTagPortion);
                 }
             });
-            updateStepStatus(2, 'complete');
-
-
-            updateStepStatus(3, 'in-progress');
-            const finalArticle: Article = {
-                id: Date.now().toString(),
-                ...articleContent,
-                content: finalContent,
-                imageUrls,
-                platformName: platform.name,
-                topic: topic,
-                seoKeywordUsed: seoKeyword.trim() ? seoKeyword.trim() : undefined,
-            };
-            setGeneratedArticle(finalArticle);
             updateStepStatus(3, 'complete');
 
+            updateStepStatus(4, 'in-progress');
+            const finalArticle: Article = { ...initialArticle, content: contentWithImages, imageUrls };
+            setGeneratedArticle(finalArticle);
+            updateStepStatus(4, 'complete');
         } catch (err) {
-            console.error(err);
             setError(err instanceof Error ? err.message : 'An unknown error occurred.');
-            setGenerationSteps(prevSteps => {
-                const newSteps = [...prevSteps];
-                const errorIndex = newSteps.findIndex(s => s.status === 'in-progress');
-                if (errorIndex !== -1) {
-                    newSteps[errorIndex].status = 'error';
-                }
-                return newSteps;
+            setGenerationSteps(prev => {
+                const next = [...prev];
+                const active = next.findIndex(s => s.status === 'in-progress');
+                if (active !== -1) next[active].status = 'error';
+                return next;
             });
         } finally {
             setIsLoading(false);
+            if (isRegeneration) setIsRegeneratingLayout(false);
         }
     };
 
-    const handleRegenerateLayout = async () => {
-        if (!generatedArticle || !lastResearchData) return;
-
-        setIsRegeneratingLayout(true);
-        setError(null);
-
-        try {
-            const articleContent: ArticleContent = await writeArticle(
-                generatedArticle.topic,
-                platform,
-                lastResearchData,
-                userProfile,
-                isManualCount ? { min: minCount, max: maxCount, type: countType } : undefined,
-                true, // Set regenerateLayout to true
-                generatedArticle.seoKeywordUsed
-            );
-            
-            const imageUrls = await Promise.all(
-                articleContent.visualPrompts.map(p => generateImage(p.prompt))
-            );
-            
-            let finalContent = articleContent.content;
-            articleContent.visualPrompts.forEach((prompt, index) => {
-                const imageUrl = imageUrls[index];
-                if(imageUrl) {
-                    const placeholderSrc = `src="${prompt.placeholder}"`;
-                    const finalImgTagPortion = `src="${imageUrl}" alt="${prompt.prompt.substring(0, 100)}"`;
-                    finalContent = finalContent.replace(placeholderSrc, finalImgTagPortion);
-                }
-            });
-
-            const finalArticle: Article = {
-                id: Date.now().toString(), // Give it a new ID
-                ...articleContent,
-                content: finalContent,
-                imageUrls,
-                platformName: platform.name,
-                topic: generatedArticle.topic,
-                seoKeywordUsed: generatedArticle.seoKeywordUsed,
-            };
-            setGeneratedArticle(finalArticle);
-
-        } catch (err) {
-            console.error(err);
-            setError(err instanceof Error ? err.message : 'An unknown error occurred while regenerating layout.');
-        } finally {
-            setIsRegeneratingLayout(false);
-        }
-    };
-    
     const handleSaveArticle = (article: Article) => {
-        const newSavedArticles = [article, ...savedArticles.filter(a => a.id !== article.id)];
-        setSavedArticles(newSavedArticles);
-        localStorage.setItem('savedArticles', JSON.stringify(newSavedArticles));
+        const next = [article, ...savedArticles.filter(a => a.id !== article.id)];
+        setSavedArticles(next);
+        localStorage.setItem('savedArticles', JSON.stringify(next));
     };
 
     const handleDeleteArticle = (articleId: string) => {
-        const newSavedArticles = savedArticles.filter(a => a.id !== articleId);
-        setSavedArticles(newSavedArticles);
-        localStorage.setItem('savedArticles', JSON.stringify(newSavedArticles));
+        const next = savedArticles.filter(a => a.id !== articleId);
+        setSavedArticles(next);
+        localStorage.setItem('savedArticles', JSON.stringify(next));
     };
-
-    const handleImportArticles = (importedArticles: Article[]) => {
-        const articleMap = new Map<string, Article>();
-        // Add existing articles to map
-        savedArticles.forEach(article => articleMap.set(article.id, article));
-        // Add imported articles, overwriting duplicates
-        importedArticles.forEach(article => articleMap.set(article.id, article));
-        
-        const newSavedArticles = Array.from(articleMap.values());
-        setSavedArticles(newSavedArticles);
-        localStorage.setItem('savedArticles', JSON.stringify(newSavedArticles));
-        alert(`${importedArticles.length} articles imported successfully!`);
-        setIsDrawerOpen(false);
-    };
-
 
     const loadArticle = (article: Article) => {
         setGeneratedArticle(article);
         setTopic(article.topic);
         setSeoKeyword(article.seoKeywordUsed || '');
-        const foundPlatform = PLATFORMS.find(p => p.name === article.platformName) || PLATFORMS[0];
-        setPlatform(foundPlatform);
+        setPlatform(PLATFORMS.find(p => p.name === article.platformName) || PLATFORMS[0]);
         setIsDrawerOpen(false);
     }
 
-    const handleIdeaSelect = (idea: TopicIdea) => {
-        setTopic(idea.title);
-        if (idea.keywords && idea.keywords.length > 0) {
-            setSeoKeyword(idea.keywords[0]);
-        }
-    };
-    
-    const handleKeywordSelect = (keyword: KeywordSuggestion) => {
-        setSeoKeyword(keyword.keyword);
-    };
-
     return (
-        <div className="min-h-screen bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200 font-sans">
-            <header className="bg-white/80 dark:bg-gray-800/50 backdrop-blur-sm sticky top-0 z-20 border-b border-gray-200 dark:border-gray-700">
-                <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-                    <div className="flex items-center justify-between h-16">
-                        <div className="flex items-center space-x-3">
-                            <SparklesIcon className="w-8 h-8 text-blue-500 dark:text-blue-400" />
-                            <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">AI Content & SEO Strategist</h1>
-                        </div>
-                        <div className="flex items-center space-x-4">
-                            <button 
-                                onClick={toggleTheme}
-                                className="p-2 rounded-full text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-100 dark:focus:ring-offset-gray-900 focus:ring-blue-500"
-                                title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
-                            >
-                                {theme === 'light' ? <MoonIcon className="w-5 h-5" /> : <SunIcon className="w-5 h-5" />}
-                            </button>
-                            <button 
-                                onClick={() => setIsDrawerOpen(true)}
-                                className="px-4 py-2 text-sm font-medium text-white bg-gray-600 dark:bg-gray-700 rounded-md hover:bg-gray-700 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-100 dark:focus:ring-offset-gray-900 focus:ring-blue-500"
-                            >
-                                Saved Articles ({savedArticles.length})
-                            </button>
-                        </div>
-                    </div>
+        <div className="h-screen w-screen overflow-hidden flex bg-premium-black text-gray-200 font-sans">
+            
+            {/* Nav Rail */}
+            <nav className="w-16 border-r border-premium-border flex flex-col items-center py-8 space-y-8 bg-premium-dark flex-shrink-0">
+                <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/20">
+                    <SparklesIcon className="w-6 h-6 text-white" />
                 </div>
-            </header>
+                <div className="flex flex-col space-y-4">
+                    <button onClick={() => setActiveTab('composer')} className={`p-3 rounded-xl transition-all ${activeTab === 'composer' ? 'bg-white/10 text-blue-400' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`}>
+                        <SparklesIcon className="w-5 h-5" />
+                    </button>
+                    <button onClick={() => setActiveTab('research')} className={`p-3 rounded-xl transition-all ${activeTab === 'research' ? 'bg-white/10 text-blue-400' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`}>
+                        <LightbulbIcon className="w-5 h-5" />
+                    </button>
+                    <button onClick={() => setActiveTab('optimise')} className={`p-3 rounded-xl transition-all ${activeTab === 'optimise' ? 'bg-white/10 text-blue-400' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`}>
+                        <SEOWorkbenchIcon className="w-5 h-5" />
+                    </button>
+                </div>
+                <div className="mt-auto flex flex-col space-y-4">
+                    <button onClick={() => setIsDrawerOpen(true)} className="p-3 text-gray-500 hover:text-gray-300 relative">
+                        <div className="w-5 h-5 border-2 border-current rounded-md flex items-center justify-center text-[10px] font-bold">L</div>
+                        {savedArticles.length > 0 && <span className="absolute top-2 right-2 w-2 h-2 bg-blue-500 rounded-full"></span>}
+                    </button>
+                    <button onClick={toggleTheme} className="p-3 text-gray-500 hover:text-gray-300">
+                        {theme === 'light' ? <MoonIcon className="w-5 h-5" /> : <SunIcon className="w-5 h-5" />}
+                    </button>
+                </div>
+            </nav>
 
-            <main className="container mx-auto p-4 sm:p-6 lg:p-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
-                <div className="lg:col-span-4 space-y-8">
-                    {/* --- TOPIC EXPLORER --- */}
-                    <TopicExplorer onIdeaSelect={handleIdeaSelect} />
+            {/* Config Sidebar */}
+            <aside className="w-[380px] flex flex-col border-r border-premium-border bg-premium-dark/50 backdrop-blur-xl flex-shrink-0">
+                <div className="h-16 flex items-center px-8 border-b border-premium-border">
+                    <h2 className="text-sm font-bold uppercase tracking-widest text-gray-400">
+                        {activeTab === 'composer' ? 'Content Engine' : activeTab === 'research' ? 'Knowledge Graph' : 'SEO Audit'}
+                    </h2>
+                </div>
 
-                    {/* --- CONTROLS --- */}
-                    <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-lg">
-                        <h2 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">Create New Article</h2>
-                        <div className="space-y-6">
-                            <div>
-                                <label htmlFor="topic" className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Topic</label>
+                <div className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar">
+                    {activeTab === 'composer' && (
+                        <div className="space-y-8 animate-slide-up">
+                            <div className="space-y-4">
+                                <label className="block text-[10px] font-bold uppercase tracking-widest text-gray-500">Core Narrative Objective</label>
                                 <textarea
-                                    id="topic"
                                     value={topic}
                                     onChange={(e) => setTopic(e.target.value)}
-                                    placeholder="e.g., The History of Artificial Intelligence"
-                                    className="w-full h-24 p-3 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition text-gray-900 dark:text-white"
+                                    placeholder="Enter your topic or prompt..."
+                                    className="w-full h-32 p-4 bg-premium-black border border-premium-border rounded-2xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition text-sm leading-relaxed placeholder-gray-600 shadow-inner-glass resize-none"
                                 />
                             </div>
-                            <div>
-                                <label htmlFor="platform" className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Target Platform</label>
-                                <select
-                                    id="platform"
-                                    value={platform.name}
-                                    onChange={(e) => setPlatform(PLATFORMS.find(p => p.name === e.target.value) || PLATFORMS[0])}
-                                    className="w-full p-3 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition appearance-none text-gray-900 dark:text-white"
-                                >
-                                    {PLATFORMS.map(p => <option key={p.name}>{p.name}</option>)}
-                                </select>
+
+                            <div className="grid grid-cols-1 gap-6">
+                                <div>
+                                    <label className="block text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-2">Publishing Channel</label>
+                                    <select
+                                        value={platform.name}
+                                        onChange={(e) => setPlatform(PLATFORMS.find(p => p.name === e.target.value) || PLATFORMS[0])}
+                                        className="w-full p-3 bg-premium-black border border-premium-border rounded-xl focus:ring-2 focus:ring-blue-500/20 transition text-sm appearance-none shadow-inner-glass"
+                                    >
+                                        {PLATFORMS.map(p => <option key={p.name}>{p.name}</option>)}
+                                    </select>
+                                </div>
                             </div>
 
-                            {/* --- Custom Length Controls --- */}
-                            <div className="pt-2">
-                                <div className="flex items-center">
-                                    <input
-                                        type="checkbox"
-                                        id="manual-count"
-                                        checked={isManualCount}
-                                        onChange={(e) => setIsManualCount(e.target.checked)}
-                                        className="h-4 w-4 rounded border-gray-400 dark:border-gray-600 bg-gray-100 dark:bg-gray-900 text-blue-600 focus:ring-blue-500"
-                                    />
-                                    <label htmlFor="manual-count" className="ml-2 block text-sm text-gray-600 dark:text-gray-400">
-                                        Set custom length
-                                    </label>
+                            <UserProfile profile={userProfile} onProfileChange={handleProfileChange} />
+
+                            <div className="pt-4 space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <label className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Length Precision</label>
+                                    <button onClick={() => setIsManualCount(!isManualCount)} className={`w-10 h-5 rounded-full relative transition-colors ${isManualCount ? 'bg-blue-600' : 'bg-gray-800'}`}>
+                                        <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${isManualCount ? 'left-6' : 'left-1'}`}></div>
+                                    </button>
                                 </div>
                                 {isManualCount && (
-                                    <div className="mt-3 space-y-3 p-4 bg-gray-100/50 dark:bg-gray-900/50 rounded-md border border-gray-300 dark:border-gray-700 animate-fade-in-fast">
-                                        <div>
-                                            <label className="block text-xs font-medium text-gray-500 dark:text-gray-500 mb-1">Count By</label>
-                                            <select
-                                                value={countType}
-                                                onChange={(e) => setCountType(e.target.value as 'words' | 'chars')}
-                                                className="w-full p-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-sm appearance-none text-gray-900 dark:text-white"
-                                            >
-                                                <option value="words">Words</option>
-                                                <option value="chars">Characters</option>
-                                            </select>
-                                        </div>
-                                        <div className="flex items-center gap-4">
-                                            <div className="flex-1">
-                                                <label htmlFor="min-count" className="block text-xs font-medium text-gray-500 dark:text-gray-500 mb-1">Min</label>
-                                                <input
-                                                    type="number"
-                                                    id="min-count"
-                                                    value={minCount}
-                                                    min="0"
-                                                    onChange={(e) => setMinCount(e.target.value)}
-                                                    placeholder="e.g., 500"
-                                                    className="w-full p-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-sm text-gray-900 dark:text-white"
-                                                />
-                                            </div>
-                                            <div className="flex-1">
-                                                <label htmlFor="max-count" className="block text-xs font-medium text-gray-500 dark:text-gray-500 mb-1">Max</label>
-                                                <input
-                                                    type="number"
-                                                    id="max-count"
-                                                    value={maxCount}
-                                                    min="0"
-                                                    onChange={(e) => setMaxCount(e.target.value)}
-                                                    placeholder="e.g., 1000"
-                                                    className="w-full p-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-sm text-gray-900 dark:text-white"
-                                                />
-                                            </div>
-                                        </div>
+                                    <div className="grid grid-cols-2 gap-3 p-4 bg-premium-black rounded-xl border border-premium-border animate-slide-up">
+                                        <input type="number" value={minCount} onChange={(e) => setMinCount(e.target.value)} placeholder="Min" className="bg-transparent border-b border-premium-border py-1 text-sm focus:border-blue-500 outline-none" />
+                                        <input type="number" value={maxCount} onChange={(e) => setMaxCount(e.target.value)} placeholder="Max" className="bg-transparent border-b border-premium-border py-1 text-sm focus:border-blue-500 outline-none" />
                                     </div>
                                 )}
                             </div>
-
-                            <button
-                                onClick={handleGenerateArticle}
-                                disabled={isLoading}
-                                className="w-full flex items-center justify-center py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-md disabled:bg-blue-800 disabled:cursor-not-allowed transition-colors duration-200"
-                            >
-                                {isLoading ? (
-                                    <>
-                                        <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                        </svg>
-                                        {generationSteps.find(s => s.status === 'in-progress')?.title || 'Generating...'}
-                                    </>
-                                ) : (
-                                    <div className="flex items-center gap-2">
-                                        <SparklesIcon className="w-5 h-5" />
-                                        Generate Article
-                                    </div>
-                                )}
-                            </button>
-                        </div>
-                    </div>
-                    {/* --- USER PROFILE --- */}
-                    <UserProfile profile={userProfile} onProfileChange={handleProfileChange} />
-
-                    {/* --- SEO WORKBENCH --- */}
-                    <SEOWorkbench
-                        topic={topic}
-                        selectedKeyword={seoKeyword}
-                        onKeywordSelect={handleKeywordSelect}
-                        analysis={generatedArticle?.seoAnalysis ?? null}
-                    />
-
-                </div>
-                
-                <div className="lg:col-span-8">
-                    {error && (
-                        <div className="bg-red-100 dark:bg-red-900/50 border border-red-400 dark:border-red-700 text-red-700 dark:text-red-300 px-4 py-3 rounded-lg mb-6" role="alert">
-                            <strong className="font-bold">Error: </strong>
-                            <span className="block sm:inline">{error}</span>
                         </div>
                     )}
-                    
-                    <ArticleDisplay 
+
+                    {activeTab === 'research' && <TopicExplorer onIdeaSelect={(idea) => { setTopic(idea.title); setSeoKeyword(idea.keywords[0] || ''); setActiveTab('composer'); }} />}
+                    {activeTab === 'optimise' && <SEOWorkbench topic={topic} selectedKeyword={seoKeyword} onKeywordSelect={(k) => { setSeoKeyword(k.keyword); setActiveTab('composer'); }} analysis={generatedArticle?.seoAnalysis ?? null} />}
+                </div>
+
+                {activeTab === 'composer' && (
+                    <div className="p-8 border-t border-premium-border">
+                        <button
+                            onClick={() => executeGeneration(false)}
+                            disabled={isLoading}
+                            className="w-full group relative py-4 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-2xl shadow-xl shadow-blue-500/20 transition-all overflow-hidden disabled:opacity-50"
+                        >
+                            <span className="relative z-10 flex items-center justify-center gap-2">
+                                {isLoading ? <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> : <SparklesIcon className="w-5 h-5" />}
+                                {isLoading ? 'Generating Engine...' : 'Initiate Synthesis'}
+                            </span>
+                        </button>
+                    </div>
+                )}
+            </aside>
+
+            {/* Main Stage */}
+            <main className="flex-1 relative overflow-y-auto custom-scrollbar bg-[#05080E]">
+                <div className="absolute inset-0 opacity-20 pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle at 2px 2px, rgba(255,255,255,0.05) 1px, transparent 0)', backgroundSize: '40px 40px' }}></div>
+                <div className="relative min-h-full py-16 px-4 lg:px-20 flex justify-center">
+                     <ArticleDisplay 
                         article={generatedArticle}
                         isLoading={isLoading}
                         isRegeneratingLayout={isRegeneratingLayout}
                         onSave={handleSaveArticle}
-                        onRegenerateLayout={handleRegenerateLayout}
+                        onRegenerateLayout={() => executeGeneration(true)}
                         generationSteps={generationSteps}
                     />
                 </div>
@@ -442,7 +319,7 @@ const App: React.FC = () => {
                 articles={savedArticles}
                 onLoadArticle={loadArticle}
                 onDeleteArticle={handleDeleteArticle}
-                onImportArticles={handleImportArticles}
+                onImportArticles={(imp) => { setSavedArticles(imp); localStorage.setItem('savedArticles', JSON.stringify(imp)); setIsDrawerOpen(false); }}
             />
         </div>
     );

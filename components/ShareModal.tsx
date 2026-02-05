@@ -26,42 +26,63 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, article }) => 
         reddit: `https://www.reddit.com/submit?title=${encodedTitle}&url=${encodedUrl}`
     };
 
+    const platforms = [
+        { name: 'X (Twitter)', icon: <XIcon className="w-5 h-5" />, link: shareLinks.twitter, color: 'hover:text-blue-400' },
+        { name: 'LinkedIn', icon: <LinkedInIcon className="w-5 h-5" />, link: shareLinks.linkedin, color: 'hover:text-blue-600' },
+        { name: 'Facebook', icon: <FacebookIcon className="w-5 h-5" />, link: shareLinks.facebook, color: 'hover:text-blue-500' },
+        { name: 'Reddit', icon: <RedditIcon className="w-5 h-5" />, link: shareLinks.reddit, color: 'hover:text-orange-500' }
+    ];
+
     return (
-        <div className="fixed inset-0 z-30 flex items-center justify-center" aria-labelledby="share-modal-title" role="dialog" aria-modal="true">
-            <div className="fixed inset-0 bg-gray-500 bg-opacity-75 dark:bg-gray-900 dark:bg-opacity-75 transition-opacity" onClick={onClose} aria-hidden="true"></div>
-            <div className="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl transform transition-all sm:my-8 sm:max-w-lg sm:w-full animate-fade-in-fast">
-                <div className="px-6 pt-5 pb-6">
-                    <div className="flex items-start justify-between">
-                        <h3 className="text-lg font-medium leading-6 text-gray-900 dark:text-white" id="share-modal-title">
-                            Share Article
-                        </h3>
-                        <button type="button" className="rounded-md bg-transparent text-gray-400 dark:text-gray-500 hover:text-gray-500 dark:hover:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500" onClick={onClose}>
-                            <span className="sr-only">Close</span>
-                            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" aria-hidden="true">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                            </svg>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" aria-labelledby="share-modal-title" role="dialog" aria-modal="true">
+            <div className="fixed inset-0 bg-black/80 backdrop-blur-xl transition-opacity animate-fade-in" onClick={onClose} aria-hidden="true"></div>
+            
+            <div className="relative w-full max-w-lg glass-card rounded-[32px] shadow-2xl overflow-hidden animate-slide-up border-white/10 ring-1 ring-white/5">
+                <div className="p-10">
+                    <div className="flex items-start justify-between mb-8">
+                        <div className="space-y-1">
+                            <h3 className="text-2xl font-black tracking-tighter text-white" id="share-modal-title">
+                                Broadcast Article
+                            </h3>
+                            <p className="text-xs font-bold uppercase tracking-widest text-blue-400 opacity-80">
+                                Distributing intelligence across nodes
+                            </p>
+                        </div>
+                        <button type="button" className="p-2 rounded-xl bg-white/5 text-gray-400 hover:text-white transition-all hover:scale-110 active:scale-95" onClick={onClose}>
+                            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
                         </button>
                     </div>
-                    <div className="mt-4">
-                        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                            Share "{article.title}" on your favorite platform.
+
+                    <div className="space-y-6">
+                        <p className="text-xs text-gray-500 font-medium leading-relaxed">
+                            Select a target gateway to share <span className="text-white">"{article.title}"</span> with your collective audience.
                         </p>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <a href={shareLinks.twitter} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 transition">
-                                <XIcon className="w-5 h-5 mr-2" /> Share on X
-                            </a>
-                            <a href={shareLinks.linkedin} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 transition">
-                                <LinkedInIcon className="w-5 h-5 mr-2" /> Share on LinkedIn
-                            </a>
-                            <a href={shareLinks.facebook} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 transition">
-                                <FacebookIcon className="w-5 h-5 mr-2" /> Share on Facebook
-                            </a>
-                            <a href={shareLinks.reddit} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 transition">
-                                <RedditIcon className="w-5 h-5 mr-2" /> Share on Reddit
-                            </a>
+                        
+                        <div className="grid grid-cols-2 gap-4">
+                            {platforms.map(p => (
+                                <a 
+                                    key={p.name} 
+                                    href={p.link} 
+                                    target="_blank" 
+                                    rel="noopener noreferrer" 
+                                    className={`flex items-center gap-4 px-6 py-4 bg-premium-black border border-white/5 rounded-2xl text-xs font-bold uppercase tracking-widest text-gray-400 transition-all hover:border-blue-500/50 hover:bg-white/[0.02] shadow-inner-glass group ${p.color}`}
+                                >
+                                    <span className="group-hover:scale-110 transition-transform">{p.icon}</span>
+                                    {p.name.split(' ')[0]}
+                                </a>
+                            ))}
                         </div>
-                        <div className="mt-6 p-3 bg-yellow-50 dark:bg-yellow-900/30 rounded-lg text-yellow-800 dark:text-yellow-300 text-xs">
-                            <strong>Note:</strong> Sharing uses a placeholder URL. Remember to replace it with your actual article link after publishing!
+
+                        <div className="mt-8 p-6 bg-blue-500/5 border border-blue-500/10 rounded-2xl flex items-start gap-4">
+                            <div className="p-2 bg-blue-500/20 rounded-lg text-blue-400">
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            </div>
+                            <div className="space-y-1">
+                                <p className="text-[10px] font-bold uppercase tracking-widest text-blue-400">Node Sync Protocol</p>
+                                <p className="text-[10px] text-blue-400/60 leading-relaxed">
+                                    Current distribution uses a sandbox URL. Sync actual link manually after final publication.
+                                </p>
+                            </div>
                         </div>
                     </div>
                 </div>

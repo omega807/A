@@ -15,6 +15,7 @@ export interface ResearchData {
     history: string;
     facts: string[];
     misconceptions: string[];
+    sources?: { uri: string; title: string; }[];
 }
 
 export interface ArticleLink {
@@ -52,6 +53,8 @@ export interface ArticleContent {
     links: ArticleLink[];
     visualPrompts: VisualPrompt[];
     seoAnalysis?: SEOAnalysis;
+    sources?: { uri: string; title: string; }[];
+    seoKeywordUsed?: string;
 }
 
 export interface Article extends ArticleContent {
@@ -59,7 +62,6 @@ export interface Article extends ArticleContent {
     imageUrls: string[];
     platformName: string;
     topic: string;
-    seoKeywordUsed?: string;
 }
 
 export interface GenerationStep {
@@ -78,3 +80,8 @@ export interface KeywordSuggestion {
     type: 'Primary' | 'Secondary';
     intent: string;
 }
+
+// Type for the non-streamed part of the article
+export type ArticlePlan = Omit<ArticleContent, 'content'>;
+
+export type RepurposePlatform = 'X (Twitter) Thread' | 'LinkedIn Post' | 'Instagram Caption';

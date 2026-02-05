@@ -1,11 +1,15 @@
+
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AI Content & SEO Strategist</title>
+    <title>Stratis — Premium Content Engine</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&family=Playfair+Display:ital,wght@0,400;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet">
   <script type="importmap">
 {
   "imports": {
@@ -20,7 +24,32 @@
 }
 </script>
 <script>
-  // Set theme on initial load to prevent flash of wrong theme
+  tailwind.config = {
+    darkMode: 'class',
+    theme: {
+      extend: {
+        fontFamily: {
+          sans: ['Inter', 'system-ui', 'sans-serif'],
+          serif: ['Playfair Display', 'serif'],
+          mono: ['JetBrains Mono', 'monospace'],
+        },
+        colors: {
+          premium: {
+            black: '#05080E',
+            dark: '#0D1117',
+            border: 'rgba(255, 255, 255, 0.08)',
+            accent: '#3B82F6',
+            purple: '#8B5CF6'
+          }
+        },
+        boxShadow: {
+          'premium': '0 0 50px -12px rgba(0, 0, 0, 0.5)',
+          'inner-glass': 'inset 0 1px 1px rgba(255, 255, 255, 0.05)',
+        }
+      }
+    }
+  }
+
   if (localStorage.getItem('theme') === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
     document.documentElement.classList.add('dark')
   } else {
@@ -28,130 +57,113 @@
   }
 </script>
 <style>
-  @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(-5px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-  .animate-fade-in {
-    animation: fadeIn 0.5s ease-out forwards;
-  }
-  .animate-fade-in-fast {
-      animation: fadeIn 0.3s ease-out forwards;
-  }
-  /* --- Article Styles --- */
-  /* Ensure proper spacing between paragraphs */
-  .prose p, .dark .prose-invert p {
-    margin-bottom: 1.25em;
-  }
-  .prose h2, .prose h3, .dark .prose-invert h2, .dark .prose-invert h3 {
-    font-weight: 700; /* Bold headings */
-  }
-  /* Custom styles for article "pop-out" sections */
-  .prose blockquote, .dark .prose-invert blockquote {
-    background-color: rgba(0, 0, 0, 0.03);
-    border-left-color: #3b82f6; /* Corresponds to Tailwind's blue-500 */
-    border-left-width: 4px;
-    padding-top: 0.5rem;
-    padding-bottom: 0.5rem;
-    padding-left: 1.5rem;
-    padding-right: 1.5rem;
-    border-radius: 0.5em;
-    font-style: normal;
-    color: inherit;
-    margin-top: 2rem; /* Add spacing */
-    margin-bottom: 2rem; /* Add spacing */
-  }
-  .dark .prose-invert blockquote {
-    background-color: rgba(255, 255, 255, 0.05);
-    border-left-color: #60a5fa; /* Corresponds to Tailwind's blue-400 */
-  }
-  .prose blockquote p:first-of-type::before,
-  .prose blockquote p:last-of-type::after,
-  .dark .prose-invert blockquote p:first-of-type::before,
-  .dark .prose-invert blockquote p:last-of-type::after {
-    content: none;
-  }
-  /* New styles for magazine-style Pull Quotes */
-  .prose blockquote.pull-quote, .dark .prose-invert blockquote.pull-quote {
-      text-align: center;
-      border: none;
-      background-color: transparent;
-      padding: 1rem;
-      margin: 2.5rem auto;
-      max-width: 80%;
-  }
-  .prose blockquote.pull-quote p, .dark .prose-invert blockquote.pull-quote p {
-      font-size: 1.5rem; /* large text */
-      font-style: italic;
-      font-weight: 300; /* lighter weight */
-      color: #4b5563; /* gray-600 */
-      line-height: 1.4;
-      margin-bottom: 0; /* Reset paragraph margin for pull quotes */
-  }
-  .dark .prose-invert blockquote.pull-quote p {
-      color: #d1d5db; /* gray-300 */
-  }
-  /* Decorative lines */
-  .prose blockquote.pull-quote::before,
-  .prose blockquote.pull-quote::after,
-  .dark .prose-invert blockquote.pull-quote::before,
-  .dark .prose-invert blockquote.pull-quote::after {
-      content: '';
-      display: block;
-      width: 80px;
-      height: 2px;
-      background-color: #3b82f6; /* blue-500 */
-      margin: 1rem auto;
-  }
-  .dark .prose-invert blockquote.pull-quote::before,
-  .dark .prose-invert blockquote.pull-quote::after {
-      background-color: #60a5fa; /* blue-400 */
-  }
-  /* Styles for embedded images */
-  .prose img, .dark .prose-invert img {
-    width: 100%;
-    border-radius: 0.75rem; /* lg */
-    margin-top: 2rem;
-    margin-bottom: 2rem;
-    box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  :root { color-scheme: dark; }
+  
+  body {
+    background-color: #f9fafb;
+    color: #111827;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
 
-  /* Two-column layout */
+  .dark body {
+    background-color: #05080E;
+    color: #f3f4f6;
+  }
+
+  /* Premium Scrollbar */
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(156, 163, 175, 0.1); border-radius: 10px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(156, 163, 175, 0.3); }
+
+  /* Animations */
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .animate-slide-up { animation: slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+  
+  @keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+  .shimmer-text {
+    background: linear-gradient(90deg, #3b82f6, #8b5cf6, #3b82f6);
+    background-size: 200% auto;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: shimmer 3s linear infinite;
+  }
+
+  /* Glass Panes */
+  .glass-card {
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.4);
+  }
+  .dark .glass-card {
+    background: rgba(13, 17, 23, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  /* Article Editor/Paper Style */
+  .prose {
+    max-width: 72ch;
+    margin: 0 auto;
+    font-size: 1.125rem;
+    line-height: 1.75;
+    letter-spacing: -0.011em;
+  }
+  .prose h1 { font-weight: 800; font-size: 3rem; margin-bottom: 0.5em; line-height: 1.1; letter-spacing: -0.04em; }
+  .prose h2 { font-weight: 700; font-size: 1.875rem; margin-top: 2.5em; margin-bottom: 1em; letter-spacing: -0.02em; }
+  .prose p { margin-bottom: 1.6em; color: rgba(255,255,255,0.85); }
+  .dark .prose p { color: rgba(255, 255, 255, 0.8); }
+
+  /* Custom Pull Quote */
+  .pull-quote {
+    margin: 4rem 0;
+    padding: 0 3rem;
+    position: relative;
+    border: none;
+    text-align: center;
+  }
+  .pull-quote p {
+    font-family: 'Playfair Display', serif;
+    font-size: 2rem;
+    font-style: italic;
+    font-weight: 600;
+    line-height: 1.3;
+    color: #3b82f6 !important;
+  }
+  .pull-quote::before {
+    content: '“';
+    position: absolute;
+    top: -1.5rem;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 5rem;
+    opacity: 0.1;
+    font-family: serif;
+  }
+
+  /* Article Layout Utilities */
   .two-col-container {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 1.5rem;
-    margin-top: 2rem;
-    margin-bottom: 2rem;
+    gap: 3rem;
+    margin: 3rem 0;
+    align-items: center;
   }
-  
-  /* Floating images overrides */
-  .prose .img-float-left, .prose .img-float-right,
-  .dark .prose-invert .img-float-left, .dark .prose-invert .img-float-right {
-    max-width: 45%;
-    width: auto;
-    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-  }
-  .prose .img-float-left, .dark .prose-invert .img-float-left {
-    float: left;
-    margin-right: 1.5rem;
-    margin-bottom: 0.5rem;
-  }
-  .prose .img-float-right, .dark .prose-invert .img-float-right {
-    float: right;
-    margin-left: 1.5rem;
-    margin-bottom: 0.5rem;
-  }
-  .clearfix::after {
-    content: "";
-    clear: both;
-    display: table;
-  }
+  .img-float-left { float: left; margin: 0 2rem 1.5rem 0; max-width: 45%; border-radius: 12px; }
+  .img-float-right { float: right; margin: 0 0 1.5rem 2rem; max-width: 45%; border-radius: 12px; }
+  .clearfix::after { content: ""; clear: both; display: table; }
 
 </style>
 </head>
-  <body class="bg-gray-100 dark:bg-gray-900">
-    <div id="root"></div>
-    <script type="module" src="/index.tsx"></script>
-  </body>
+<body class="antialiased selection:bg-blue-500/40">
+  <div id="root"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
 </html>

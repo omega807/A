@@ -1,5 +1,6 @@
+
 import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
-import type { Platform, UserProfile, ResearchData, ArticleContent, TopicIdea, KeywordSuggestion } from '../types';
+import type { Platform, UserProfile, ResearchData, ArticleContent, TopicIdea, KeywordSuggestion, ArticlePlan, RepurposePlatform } from '../types';
 
 if (!process.env.API_KEY) {
     throw new Error("API_KEY environment variable not set");
@@ -7,270 +8,303 @@ if (!process.env.API_KEY) {
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
+const BRITISH_SPELLING_INSTRUCTION = "CRITICAL: You MUST use British English spelling throughout (e.g., use 's' instead of 'z' in words like 'optimise', 'analysing', 'organise', 'synthesising'). Do not use American English conventions.";
+
+/**
+ * Robust error parser to extract human-readable messages from API errors.
+ */
+const parseApiError = (error: any): string => {
+    console.error("Stratis System - API Error Logged:", error);
+    
+    let message = "";
+    
+    // Try to extract message from common SDK error structures
+    if (typeof error === 'string') {
+        message = error;
+    } else if (error?.error?.message) {
+        message = error.error.message;
+    } else if (error?.message) {
+        message = error.message;
+    } else {
+        try {
+            // Attempt to handle cases where the error is a stringified JSON
+            const stringified = JSON.stringify(error);
+            const parsed = JSON.parse(stringified);
+            message = parsed?.error?.message || parsed?.message || stringified;
+        } catch (e) {
+            message = String(error);
+        }
+    }
+
+    const lowerMessage = message.toLowerCase();
+    
+    // Specific check for Quota / Rate Limit (429)
+    if (lowerMessage.includes("429") || 
+        lowerMessage.includes("quota") || 
+        lowerMessage.includes("exhausted") || 
+        lowerMessage.includes("rate_limit") ||
+        lowerMessage.includes("resource_exhausted")) {
+        return "Stratis Synthesis Limit Reached: Your current API quota has been exceeded. Please check your billing status at ai.google.dev/gemini-api/docs/billing or wait for the cooldown period to expire.";
+    }
+
+    // Specific check for Overload (503)
+    if (lowerMessage.includes("503") || lowerMessage.includes("overloaded") || lowerMessage.includes("unavailable")) {
+        return "The synthesis engine is momentarily overloaded. We are attempting to re-establish a stable connection.";
+    }
+
+    // Auth Errors
+    if (lowerMessage.includes("api_key") || lowerMessage.includes("invalid") || lowerMessage.includes("unauthorized")) {
+        return "Access denied. Please verify your system credentials or API key configuration.";
+    }
+
+    // If it's still a JSON string, try one last time to clean it
+    if (message.startsWith('{') && message.endsWith('}')) {
+        try {
+            const finalClean = JSON.parse(message);
+            if (finalClean?.error?.message) return finalClean.error.message;
+        } catch(e) {}
+    }
+
+    return message || "An unexpected variance occurred during synthesis. Our systems are investigating the discrepancy.";
+};
+
+/**
+ * Exponential backoff logic for retrying transient API errors.
+ */
+const callGeminiWithRetry = async <T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> => {
+    let lastError: any;
+    for (let i = 0; i < maxRetries; i++) {
+        try {
+            return await fn();
+        } catch (error: any) {
+            lastError = error;
+            
+            let msg = "";
+            if (typeof error === 'string') msg = error;
+            else if (error?.message) msg = error.message;
+            else if (error?.error?.message) msg = error.error.message;
+            else msg = JSON.stringify(error);
+
+            const lowerMsg = msg.toLowerCase();
+            
+            // Determine if the error is transient and worth retrying
+            const isTransient = lowerMsg.includes("429") || 
+                               lowerMsg.includes("503") || 
+                               lowerMsg.includes("quota") || 
+                               lowerMsg.includes("exhausted") || 
+                               lowerMsg.includes("deadline") ||
+                               lowerMsg.includes("network") ||
+                               lowerMsg.includes("resource_exhausted");
+
+            if (isTransient && i < maxRetries - 1) {
+                const delay = Math.pow(2, i) * 2000 + Math.random() * 1000;
+                console.warn(`Stratis Resilience: Transient error detected. Retrying in ${Math.round(delay)}ms...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+                continue;
+            }
+            
+            throw new Error(parseApiError(error));
+        }
+    }
+    throw new Error(parseApiError(lastError));
+};
+
 export const findKeywords = async (topic: string): Promise<KeywordSuggestion[]> => {
-    const response: GenerateContentResponse = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: `You are an expert SEO strategist. For the topic "${topic}", generate a list of 5-7 keyword suggestions.
-        - Include 2-3 "Primary" keywords that are broad and have high traffic potential.
-        - Include 3-4 "Secondary" (long-tail) keywords that are more specific.
-        - For each keyword, determine the likely user "intent" (e.g., Informational, Commercial, Navigational).
-        `,
-        config: {
-            responseMimeType: "application/json",
-            responseSchema: {
-                type: Type.ARRAY,
-                items: {
-                    type: Type.OBJECT,
-                    properties: {
-                        keyword: { type: Type.STRING },
-                        type: { type: Type.STRING, description: "'Primary' or 'Secondary'" },
-                        intent: { type: Type.STRING, description: "The likely user search intent." }
-                    },
-                    required: ["keyword", "type", "intent"]
+    return callGeminiWithRetry(async () => {
+        const response: GenerateContentResponse = await ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: `You are an expert SEO strategist. For the topic "${topic}", generate a list of 5-7 keyword suggestions.
+            ${BRITISH_SPELLING_INSTRUCTION}
+            - Include 2-3 "Primary" keywords that are broad and have high traffic potential.
+            - Include 3-4 "Secondary" (long-tail) keywords that are more specific.
+            - For each keyword, determine the likely user "intent" (e.g., Informational, Commercial, Navigational).
+            `,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.ARRAY,
+                    items: {
+                        type: Type.OBJECT,
+                        properties: {
+                            keyword: { type: Type.STRING },
+                            type: { type: Type.STRING, description: "'Primary' or 'Secondary'" },
+                            intent: { type: Type.STRING, description: "The likely user search intent." }
+                        },
+                        required: ["keyword", "type", "intent"]
+                    }
                 }
             }
-        }
-    });
+        });
 
-    try {
         const jsonText = response.text.trim();
         return JSON.parse(jsonText) as KeywordSuggestion[];
-    } catch (e) {
-        console.error("Failed to parse keywords:", e);
-        throw new Error("Failed to get valid keywords from AI.");
-    }
+    });
 };
 
 export const exploreTopicIdeas = async (topic: string): Promise<TopicIdea[]> => {
-    const response: GenerateContentResponse = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: `You are an expert content strategist and SEO specialist. Brainstorm 5 creative and engaging article ideas based on the broad topic: "${topic}". For each idea, provide a catchy, SEO-friendly title, a unique angle or synopsis, and a list of 3-5 relevant keywords.`,
-        config: {
-            responseMimeType: "application/json",
-            responseSchema: {
-                type: Type.ARRAY,
-                items: {
-                    type: Type.OBJECT,
-                    properties: {
-                        title: { type: Type.STRING, description: "A catchy, SEO-friendly title for the article." },
-                        angle: { type: Type.STRING, description: "A short (1-2 sentence) description of the unique angle or focus of the article." },
-                        keywords: { type: Type.ARRAY, items: { type: Type.STRING }, description: "A list of 3-5 relevant SEO keywords." },
+    return callGeminiWithRetry(async () => {
+        const response: GenerateContentResponse = await ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: `You are an expert content strategist and SEO specialist. Brainstorm 5 creative and engaging article ideas based on the broad topic: "${topic}". 
+            ${BRITISH_SPELLING_INSTRUCTION}
+            For each idea, provide a catchy, SEO-friendly title, a unique angle or synopsis, and a list of 3-5 relevant keywords.`,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.ARRAY,
+                    items: {
+                        type: Type.OBJECT,
+                        properties: {
+                            title: { type: Type.STRING, description: "A catchy, SEO-friendly title for the article." },
+                            angle: { type: Type.STRING, description: "A short (1-2 sentence) description of the unique angle or focus of the article." },
+                            keywords: { type: Type.ARRAY, items: { type: Type.STRING }, description: "A list of 3-5 relevant SEO keywords." },
+                        },
+                        required: ["title", "angle", "keywords"],
                     },
-                    required: ["title", "angle", "keywords"],
                 },
             },
-        },
-    });
+        });
 
-    try {
         const jsonText = response.text.trim();
         return JSON.parse(jsonText) as TopicIdea[];
-    } catch (e) {
-        console.error("Failed to parse topic ideas:", e);
-        console.error("Raw response:", response.text);
-        throw new Error("Failed to get valid topic ideas from AI.");
-    }
+    });
 };
-
 
 export const researchTopic = async (topic: string): Promise<ResearchData> => {
-    const response: GenerateContentResponse = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: `Research the topic: "${topic}". Provide a detailed breakdown covering its history, quirky and little-known facts, and common misconceptions or urban myths.`,
-        config: {
-            responseMimeType: "application/json",
-            responseSchema: {
-                type: Type.OBJECT,
-                properties: {
-                    history: { type: Type.STRING, description: "A summary of the topic's history." },
-                    facts: { type: Type.ARRAY, items: { type: Type.STRING }, description: "A list of quirky or little-known facts." },
-                    misconceptions: { type: Type.ARRAY, items: { type: Type.STRING }, description: "A list of common misconceptions or urban myths." },
-                },
-                required: ["history", "facts", "misconceptions"],
+    return callGeminiWithRetry(async () => {
+        const researchSchema = {
+            type: Type.OBJECT,
+            properties: {
+                history: { type: Type.STRING, description: "A summary of the topic's history." },
+                facts: { type: Type.ARRAY, items: { type: Type.STRING }, description: "A list of quirky or little-known facts." },
+                misconceptions: { type: Type.ARRAY, items: { type: Type.STRING }, description: "A list of common misconceptions or urban myths." },
             },
-        },
-    });
+            required: ["history", "facts", "misconceptions"],
+        };
 
-    try {
-        const jsonText = response.text.trim();
-        return JSON.parse(jsonText) as ResearchData;
-    } catch (e) {
-        console.error("Failed to parse research data:", e);
-        console.error("Raw response:", response.text);
-        throw new Error("Failed to get valid research data from AI.");
-    }
+        const prompt = `Your task is to research the topic: "${topic}". Use Google Search to find up-to-date, factual information.
+        ${BRITISH_SPELLING_INSTRUCTION}
+        Provide a detailed breakdown covering its history, quirky and little-known facts, and common misconceptions or urban myths.
+        
+        Your final output MUST be a single, valid JSON object that adheres to the following schema.
+        Schema:
+        ${JSON.stringify(researchSchema, null, 2)}
+        `;
+
+        const response: GenerateContentResponse = await ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: prompt,
+            config: {
+                tools: [{googleSearch: {}}],
+            },
+        });
+        
+        const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks
+            ?.map(chunk => chunk.web && { uri: chunk.web.uri, title: chunk.web.title })
+            .filter((source): source is { uri: string; title: string } => !!source)
+            .reduce((acc, current) => {
+                if (!acc.find(item => item.uri === current.uri)) {
+                    acc.push(current);
+                }
+                return acc;
+            }, [] as { uri: string; title: string }[]);
+
+        const text = response.text.trim();
+        const jsonStart = text.indexOf('{');
+        const jsonEnd = text.lastIndexOf('}');
+        if (jsonStart === -1 || jsonEnd === -1) {
+            throw new Error("No JSON object found in the AI response.");
+        }
+        const jsonText = text.substring(jsonStart, jsonEnd + 1);
+        const parsedData = JSON.parse(jsonText);
+        return { ...parsedData, sources: sources || [] };
+    });
 };
 
-export const writeArticle = async (
-    topic: string, 
-    platform: Platform, 
-    researchData: ResearchData, 
-    userProfile: UserProfile,
-    manualCount?: { min: string; max: string; type: 'words' | 'chars' },
-    regenerateLayout?: boolean,
-    seoKeyword?: string
-): Promise<ArticleContent> => {
-    
-    let platformConstraints: string;
-
+const getPlatformConstraints = (
+    platform: Platform,
+    manualCount?: { min: string; max: string; type: 'words' | 'chars' }
+): string => {
     if (manualCount && (manualCount.min.trim() || manualCount.max.trim())) {
-        platformConstraints = `- Platform: ${platform.name} (with custom length)`;
+        let constraints = `- Platform: ${platform.name} (with custom length)`;
         const min = parseInt(manualCount.min, 10);
         const max = parseInt(manualCount.max, 10);
         const type = manualCount.type;
         const typeLabel = type === 'words' ? 'Word' : 'Character';
 
         if (min > 0 && max > 0 && min <= max) {
-            platformConstraints += `\n- ${typeLabel} Count: Between ${min} and ${max}.`;
+            constraints += `\n- ${typeLabel} Count: Between ${min} and ${max}.`;
         } else if (max > 0) {
-            platformConstraints += `\n- Maximum ${typeLabel} Count: ${max}.`;
+            constraints += `\n- Maximum ${typeLabel} Count: ${max}.`;
         } else if (min > 0) {
-            platformConstraints += `\n- Minimum ${typeLabel} Count: ${min}.`;
+            constraints += `\n- Minimum ${typeLabel} Count: ${min}.`;
         }
-    } else {
-        platformConstraints = `
+        return constraints;
+    }
+    return `
 - Platform: ${platform.name}
 ${platform.wordCount ? `- Word Count Limit: Approximately ${platform.wordCount} words` : ''}
 ${platform.charCount ? `- Character Count Limit: ${platform.charCount} characters` : ''}
     `;
-    }
+};
 
+export const generateArticlePlan = async (
+    topic: string, 
+    platform: Platform, 
+    researchData: ResearchData, 
+    userProfile: UserProfile,
+    manualCount?: { min: string; max: string; type: 'words' | 'chars' },
+    seoKeyword?: string
+): Promise<ArticlePlan> => {
+    return callGeminiWithRetry(async () => {
+        const platformConstraints = getPlatformConstraints(platform, manualCount);
+        const prompt = `
+            You are an expert blog post writer and SEO strategist. Create a detailed plan for an article.
+            ${BRITISH_SPELLING_INSTRUCTION}
+            Topic: "${topic}"
+            Platform Constraints: ${platformConstraints}
+            Author Profile: ${JSON.stringify(userProfile)}
+            ${seoKeyword ? `Target Keyword: "${seoKeyword}"` : ''}
 
-    const prompt = `
-        You are an expert blog post writer and SEO strategist, thinking like the creative director of a modern online magazine (like Wired or The Verge). Your goal is to create highly readable, engaging, and visually dynamic content.
-
-        **Topic:** "${topic}"
-
-        **Platform Constraints:**
-        ${platformConstraints}
-
-        **Author Profile:**
-        - Writing Style: ${userProfile.style}
-        - Tone of Voice: ${userProfile.tone}
-        - Language / Dialect: ${userProfile.language}
-        - Target Audience: ${userProfile.audience}
-
-        **Research Material (JSON):**
-        ${JSON.stringify(researchData, null, 2)}
+            OUTPUT REQUIREMENTS:
+            - Provide title, hashtags, links, and visualPrompts.
+            - If seoKeyword is present, provide a full seoAnalysis object.
+        `;
         
-        ${seoKeyword ? `
-        ---
-
-        **SEO OPTIMIZATION STRATEGY (CRITICAL):**
-
-        The user has provided a target SEO keyword: "${seoKeyword}". You MUST perform a deep SEO analysis and optimize the article for this keyword.
-
-        1.  **Analyze and Optimize:**
-            -   **Title:** The main \`title\` MUST include the exact keyword.
-            -   **Meta Description:** Generate a compelling, clickable meta description (120-155 characters) including the keyword.
-            -   **Keyword Placement:** Ensure the keyword appears naturally in at least one \`<h2>\` heading and within the first 150 words of the article. Integrate it a few more times throughout the body content, but avoid keyword stuffing.
-            -   **Related Keywords:** Generate a list of 3-5 semantically related keywords (LSI keywords) that support the main keyword and include some in the content.
-            -   **Readability:** Analyze the generated text. Aim for a reading level around 8th-10th grade. Provide a one-sentence note on the readability.
-
-        2.  **Generate SEO Analysis Object:** Based on your optimization, create the \`seoAnalysis\` object.
-            -   **Score:** Provide an overall SEO score from 0-100 based on how well you were able to implement these optimizations.
-            -   **Checklist with Recommendations:** For each item in the checklist, provide a status ('Pass', 'Needs Improvement', 'Fail') and a specific, ACTIONABLE recommendation. If the status is 'Pass', the recommendation should be a brief confirmation.
-                -   *Example Fail:* { "check": "Keyword in Title", "status": "Fail", "recommendation": "The title does not contain the keyword. Consider changing it to 'The Benefits of ${seoKeyword} for Beginners'." }
-                -   *Example Pass:* { "check": "Keyword in Title", "status": "Pass", "recommendation": "The title successfully includes the target keyword." }
-        ---
-        ` : ''}
-
-        ---
-
-        **VISUAL ELEMENT STRATEGY (CRITICAL):**
-
-        As a visual director, you MUST enhance this article with visual elements to maximize engagement. For each visual you decide to include, you must:
-        1.  Create a unique placeholder ID in the format \`[IMAGE_X]\` (e.g., \`[IMAGE_1]\`, \`[IMAGE_2]\`).
-        2.  Generate a complete \`<img>\` tag within the article \`content\` where the visual should appear. The \`src\` attribute of this tag MUST be the placeholder ID (e.g., \`<img src="[IMAGE_1]" class="img-float-left">\`).
-        3.  Add a corresponding object to the \`visualPrompts\` array in the final JSON output.
-        - For long-form platforms (Generic Blog Post, Medium, etc.), generate **2-4 visuals**. For shorter platforms (X, Instagram), generate **exactly 1**.
-        - The visuals should be a mix of: Photorealistic Images, Infographics, or Charts.
-
-        ---
-
-        **CREATIVE LAYOUT BLUEPRINT (Follow this strictly):**
-
-        ${regenerateLayout ? `**Layout Regeneration Request:** The user wants a new layout. You MUST generate a significantly different and creative layout. Use a completely different combination and order of the available layout elements. Be bold and creative.` : ''}
-
-        1.  **Compelling Hook (Introduction):**
-            - Start with a short, powerful opening paragraph (1-3 sentences) to grab the reader's attention.
-
-        2.  **Main Body (Varied & Scannable):**
-            - Break content into logical sections using \`<h2>\` and \`<h3>\` headings.
-            - **CRITICAL: Keep paragraphs very short (2-4 sentences max). Each paragraph MUST be enclosed in its own \`<p>\` tag. Do NOT use \`<br>\` to create space.**
-            - Use \`<strong>\` to bold key terms for emphasis.
-            - **Layout Variety Requirement:** You MUST strategically intersperse at least FOUR different types of the following layout elements. At least ONE must be a two-column section and at least ONE must be a floating image.
-                - **A) Pull Quote:** Use \`<blockquote class="pull-quote"><p>Impactful sentence from the text.</p></blockquote>\`.
-                - **B) Informational Box:** Use a standard \`<blockquote>\` for a "Did You Know?", "Pro Tip", etc.
-                - **C) List:** Use \`<ol>\` or \`<ul>\`.
-                - **D) Two-Column Section:** Use \`<div class="two-col-container"><div><p>Column 1 content...</p></div><div><p>Column 2 content...</p></div></div>\`. This is great for comparisons.
-                - **E) Floating Image:** Generate an \`<img>\` tag with class \`img-float-left\` or \`img-float-right\`. Place this tag at the *beginning* of a paragraph. The text in that paragraph will wrap around it.
-                - **F) Mini Q&A:** Use an \`<h3>\` for a question and a \`<p>\` for the answer.
-
-        3.  **Key Takeaways (Summary Box):**
-            - Towards the end, create a summary section inside a standard \`<blockquote>\` with a heading like "Key Takeaways". Use a \`<ul>\` inside.
-
-        4.  **Conclusion & Engagement:**
-            - Write a brief concluding paragraph. End by asking an open-ended question.
-
-        5.  **Clearfix Usage:** After content that uses floating images, you can add \`<div class="clearfix"></div>\` on its own line if needed to prevent subsequent content from wrapping incorrectly. Use this sparingly.
-
-        ---
-
-        **CONTENT REQUIREMENTS:**
-
-        - The final content MUST be a single string of HTML. Do not include \`<html>\` or \`<body>\` tags.
-        - Adhere strictly to word/character count limits.
-        - Provide 2-4 relevant hashtags.
-        - Suggest 2-3 relevant external links (use placeholder URLs).
-        - Generate the required \`visualPrompts\` array and place their corresponding \`<img>\` tags (with placeholder src) in the content.
-    `;
-    
-    const responseSchema = {
-        type: Type.OBJECT,
-        properties: {
-            title: { type: Type.STRING, description: "A catchy title for the article." },
-            content: { type: Type.STRING, description: "The main body of the article, formatted as a single HTML string. It must include the complete <img> tags for all visuals, using [IMAGE_X] placeholders for their src attributes." },
-            hashtags: { type: Type.ARRAY, items: { type: Type.STRING }, description: "An array of hashtag strings (e.g., ['#topic', '#funfacts'])." },
-            links: { 
-                type: Type.ARRAY, 
-                items: { 
-                    type: Type.OBJECT, 
-                    properties: {
-                        text: { type: Type.STRING },
-                        url: { type: Type.STRING }
-                    },
-                    required: ["text", "url"]
-                }, 
-                description: "An array of link objects."
-            },
-            visualPrompts: {
-                type: Type.ARRAY,
-                description: "An array of prompts for generating visual elements.",
-                items: {
-                    type: Type.OBJECT,
-                    properties: {
-                        placeholder: { type: Type.STRING, description: "The placeholder ID used in the content, e.g., '[IMAGE_1]'." },
-                        type: { type: Type.STRING, description: "Type of visual, e.g., 'Photorealistic Image', 'Infographic'."},
-                        prompt: { type: Type.STRING, description: "A detailed DALL-E style prompt for the visual." }
-                    },
-                    required: ["placeholder", "type", "prompt"]
-                }
-            },
-            ...(seoKeyword && {
+        const responseSchema = {
+            type: Type.OBJECT,
+            properties: {
+                title: { type: Type.STRING },
+                hashtags: { type: Type.ARRAY, items: { type: Type.STRING } },
+                links: { 
+                    type: Type.ARRAY, 
+                    items: { 
+                        type: Type.OBJECT, 
+                        properties: { text: { type: Type.STRING }, url: { type: Type.STRING } },
+                        required: ["text", "url"]
+                    }
+                },
+                visualPrompts: {
+                    type: Type.ARRAY,
+                    items: {
+                        type: Type.OBJECT,
+                        properties: {
+                            placeholder: { type: Type.STRING },
+                            type: { type: Type.STRING },
+                            prompt: { type: Type.STRING }
+                        },
+                        required: ["placeholder", "type", "prompt"]
+                    }
+                },
                 seoAnalysis: {
                     type: Type.OBJECT,
-                    description: "An analysis of the article's SEO optimization for the target keyword.",
                     properties: {
-                        score: { type: Type.NUMBER, description: "An overall SEO score from 0 to 100." },
-                        metaDescription: { type: Type.STRING, description: "A compelling meta description (120-155 chars) including the keyword." },
-                        relatedKeywords: { type: Type.ARRAY, items: { type: Type.STRING }, description: "A list of 3-5 related LSI keywords." },
+                        score: { type: Type.NUMBER },
+                        metaDescription: { type: Type.STRING },
+                        relatedKeywords: { type: Type.ARRAY, items: { type: Type.STRING } },
                         readability: {
                             type: Type.OBJECT,
-                            properties: {
-                                level: { type: Type.STRING, description: "e.g., 'Grade 9'" },
-                                notes: { type: Type.STRING, description: "A brief note on the content's readability." }
-                            },
+                            properties: { level: { type: Type.STRING }, notes: { type: Type.STRING } },
                             required: ["level", "notes"]
                         },
                         checklist: {
@@ -279,62 +313,104 @@ ${platform.charCount ? `- Character Count Limit: ${platform.charCount} character
                                 type: Type.OBJECT,
                                 properties: {
                                     check: { type: Type.STRING },
-                                    status: { type: Type.STRING, description: "'Pass', 'Needs Improvement', or 'Fail'" },
-                                    recommendation: { type: Type.STRING, description: "A specific, actionable recommendation." }
+                                    status: { type: Type.STRING },
+                                    recommendation: { type: Type.STRING }
                                 },
                                 required: ["check", "status", "recommendation"]
                             }
                         }
-                    },
-                    required: ["score", "metaDescription", "relatedKeywords", "readability", "checklist"]
+                    }
                 }
-            })
-        },
-        required: ["title", "content", "hashtags", "links", "visualPrompts"]
-    };
+            },
+            required: ["title", "hashtags", "links", "visualPrompts"]
+        };
 
+        const response: GenerateContentResponse = await ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: responseSchema,
+            }
+        });
 
-    const response: GenerateContentResponse = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: prompt,
-        config: {
-            responseMimeType: "application/json",
-            responseSchema: responseSchema,
-        }
-    });
-
-    try {
         const jsonText = response.text.trim();
-        const parsedArticle = JSON.parse(jsonText);
-        // Ensure links are properly formatted
-        if (!Array.isArray(parsedArticle.links) || !parsedArticle.links.every((l: any) => typeof l === 'object' && 'text' in l && 'url' in l)) {
-            parsedArticle.links = [{ text: 'More Info', url: 'https://example.com' }];
-        }
-        return parsedArticle as ArticleContent;
-    } catch (e) {
-        console.error("Failed to parse article content:", e);
-        console.error("Raw response:", response.text);
-        throw new Error("Failed to get valid article content from AI.");
-    }
+        const parsedPlan = JSON.parse(jsonText);
+        parsedPlan.sources = researchData.sources;
+        if (seoKeyword) parsedPlan.seoKeywordUsed = seoKeyword;
+        return parsedPlan as ArticlePlan;
+    });
 };
 
-export const generateImage = async (prompt: string): Promise<string> => {
-    // Add context to the prompt for better results
-    const fullPrompt = `High-resolution, cinematic lighting, professional photography of: ${prompt}. If the prompt describes a chart or infographic, create a clean, modern, and visually appealing representation of it.`;
-    const response = await ai.models.generateImages({
-        model: 'imagen-4.0-generate-001',
-        prompt: fullPrompt,
-        config: {
-            numberOfImages: 1,
-            outputMimeType: 'image/jpeg',
-            aspectRatio: '16:9',
-        },
+export async function* streamArticleContent(
+    plan: ArticlePlan,
+    platform: Platform,
+    researchData: ResearchData,
+    userProfile: UserProfile,
+    manualCount?: { min: string; max: string; type: 'words' | 'chars' },
+    regenerateLayout?: boolean
+): AsyncGenerator<string> {
+    const platformConstraints = getPlatformConstraints(platform, manualCount);
+    const prompt = `
+        Write the main HTML content for an article.
+        ${BRITISH_SPELLING_INSTRUCTION}
+        Plan: ${JSON.stringify(plan)}
+        Platform: ${platformConstraints}
+        Profile: ${JSON.stringify(userProfile)}
+        Research: ${JSON.stringify(researchData)}
+        ${regenerateLayout ? `REGENERATE LAYOUT: Create a completely new layout structure.` : ''}
+
+        RULES:
+        - Output raw HTML ONLY. No tags like <html>, <head> or <body>.
+        - Use <p> tags for every paragraph.
+        - Use <h2>/<h3> for headings.
+        - Strategic use of <blockquote class="pull-quote">, lists, and two-column divs (<div class="two-col-container">).
+        - Place placeholders for images exactly where appropriate using <img src="[ID]" class="img-float-left" /> style tags.
+    `;
+    
+    const responseStream = await ai.models.generateContentStream({
+        model: 'gemini-3-flash-preview',
+        contents: prompt
     });
 
-    if (response.generatedImages && response.generatedImages.length > 0) {
-        const base64ImageBytes: string = response.generatedImages[0].image.imageBytes;
-        return `data:image/jpeg;base64,${base64ImageBytes}`;
+    for await (const chunk of responseStream) {
+        yield chunk.text;
     }
-    
-    throw new Error("Image generation failed or returned no images.");
+}
+
+export const generateImage = async (prompt: string): Promise<string> => {
+    return callGeminiWithRetry(async () => {
+        const response = await ai.models.generateImages({
+            model: 'imagen-4.0-generate-001',
+            prompt: `High-end editorial photography, cinematic lighting, 8k: ${prompt}`,
+            config: { numberOfImages: 1, outputMimeType: 'image/jpeg', aspectRatio: '16:9' },
+        });
+        if (response.generatedImages && response.generatedImages.length > 0) {
+            return `data:image/jpeg;base64,${response.generatedImages[0].image.imageBytes}`;
+        }
+        throw new Error("Image generation failed.");
+    });
+};
+
+export const repurposeContent = async (articleTitle: string, articleContent: string, platform: RepurposePlatform): Promise<string> => {
+    return callGeminiWithRetry(async () => {
+        const prompt = `You are a social media growth expert. Repurpose the following article for ${platform}.
+        ${BRITISH_SPELLING_INSTRUCTION}
+        
+        Article Title: "${articleTitle}"
+        Article Content (HTML): ${articleContent}
+        
+        GUIDELINES:
+        - For "X (Twitter) Thread": Create a compelling 5-7 tweet thread. Start with a hook. Use numbered tweets (1/n).
+        - For "LinkedIn Post": Create a professional, insightful post with bullet points and a clear call to action. Focus on industry authority.
+        - For "Instagram Caption": Create a vibrant, engaging caption with line breaks for readability. Include relevant emojis and a block of 5-10 trending hashtags at the end.
+        
+        Output the raw text of the post only. Do not include meta-commentary.`;
+        
+        const response = await ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: prompt
+        });
+        return response.text;
+    });
 };
