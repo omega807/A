@@ -2,11 +2,19 @@
 import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
 import type { Platform, UserProfile, ResearchData, ArticleContent, TopicIdea, KeywordSuggestion, ArticlePlan, RepurposePlatform } from '../types';
 
-if (!process.env.API_KEY) {
-    throw new Error("API_KEY environment variable not set");
-}
+const apiKey = import.meta.env.VITE_API_KEY ?? process.env.API_KEY;
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+let ai: GoogleGenAI | null = null;
+
+const getClient = (): GoogleGenAI => {
+    if (!apiKey) {
+        throw new Error("API_KEY environment variable not set");
+    }
+    if (!ai) {
+        ai = new GoogleGenAI({ apiKey });
+    }
+    return ai;
+};
 
 const BRITISH_SPELLING_INSTRUCTION = "CRITICAL: You MUST use British English spelling throughout (e.g., use 's' instead of 'z' in words like 'optimise', 'analysing', 'organise', 'synthesising'). Do not use American English conventions.";
 
@@ -111,7 +119,7 @@ const callGeminiWithRetry = async <T>(fn: () => Promise<T>, maxRetries = 3): Pro
 
 export const findKeywords = async (topic: string): Promise<KeywordSuggestion[]> => {
     return callGeminiWithRetry(async () => {
-        const response: GenerateContentResponse = await ai.models.generateContent({
+        const response: GenerateContentResponse = await getClient().models.generateContent({
             model: 'gemini-3-flash-preview',
             contents: `You are an expert SEO strategist. For the topic "${topic}", generate a list of 5-7 keyword suggestions.
             ${BRITISH_SPELLING_INSTRUCTION}
@@ -143,7 +151,7 @@ export const findKeywords = async (topic: string): Promise<KeywordSuggestion[]> 
 
 export const exploreTopicIdeas = async (topic: string): Promise<TopicIdea[]> => {
     return callGeminiWithRetry(async () => {
-        const response: GenerateContentResponse = await ai.models.generateContent({
+        const response: GenerateContentResponse = await getClient().models.generateContent({
             model: 'gemini-3-flash-preview',
             contents: `You are an expert content strategist and SEO specialist. Brainstorm 5 creative and engaging article ideas based on the broad topic: "${topic}". 
             ${BRITISH_SPELLING_INSTRUCTION}
@@ -191,11 +199,13 @@ export const researchTopic = async (topic: string): Promise<ResearchData> => {
         ${JSON.stringify(researchSchema, null, 2)}
         `;
 
-        const response: GenerateContentResponse = await ai.models.generateContent({
+        const response: GenerateContentResponse = await getClient().models.generateContent({
             model: 'gemini-3-flash-preview',
             contents: prompt,
             config: {
                 tools: [{googleSearch: {}}],
+                responseMimeType: "application/json",
+                responseSchema: researchSchema,
             },
         });
         
@@ -210,13 +220,12 @@ export const researchTopic = async (topic: string): Promise<ResearchData> => {
             }, [] as { uri: string; title: string }[]);
 
         const text = response.text.trim();
-        const jsonStart = text.indexOf('{');
-        const jsonEnd = text.lastIndexOf('}');
-        if (jsonStart === -1 || jsonEnd === -1) {
+        let parsedData: ResearchData;
+        try {
+            parsedData = JSON.parse(text);
+        } catch (error) {
             throw new Error("No JSON object found in the AI response.");
         }
-        const jsonText = text.substring(jsonStart, jsonEnd + 1);
-        const parsedData = JSON.parse(jsonText);
         return { ...parsedData, sources: sources || [] };
     });
 };
@@ -325,7 +334,7 @@ export const generateArticlePlan = async (
             required: ["title", "hashtags", "links", "visualPrompts"]
         };
 
-        const response: GenerateContentResponse = await ai.models.generateContent({
+        const response: GenerateContentResponse = await getClient().models.generateContent({
             model: 'gemini-3-flash-preview',
             contents: prompt,
             config: {
@@ -368,7 +377,7 @@ export async function* streamArticleContent(
         - Place placeholders for images exactly where appropriate using <img src="[ID]" class="img-float-left" /> style tags.
     `;
     
-    const responseStream = await ai.models.generateContentStream({
+    const responseStream = await getClient().models.generateContentStream({
         model: 'gemini-3-flash-preview',
         contents: prompt
     });
@@ -380,7 +389,7 @@ export async function* streamArticleContent(
 
 export const generateImage = async (prompt: string): Promise<string> => {
     return callGeminiWithRetry(async () => {
-        const response = await ai.models.generateImages({
+        const response = await getClient().models.generateImages({
             model: 'imagen-4.0-generate-001',
             prompt: `High-end editorial photography, cinematic lighting, 8k: ${prompt}`,
             config: { numberOfImages: 1, outputMimeType: 'image/jpeg', aspectRatio: '16:9' },
@@ -407,7 +416,7 @@ export const repurposeContent = async (articleTitle: string, articleContent: str
         
         Output the raw text of the post only. Do not include meta-commentary.`;
         
-        const response = await ai.models.generateContent({
+        const response = await getClient().models.generateContent({
             model: 'gemini-3-flash-preview',
             contents: prompt
         });
