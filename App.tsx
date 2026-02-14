@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { UserProfile as UserProfileType, Platform, Article, ArticleContent, GenerationStep, ResearchData, TopicIdea, KeywordSuggestion, ArticlePlan } from './types';
 import { PLATFORMS, DEFAULT_USER_PROFILE } from './constants';
 import { researchTopic, generateArticlePlan, streamArticleContent, generateImage } from './services/geminiService';
@@ -36,11 +36,18 @@ const App: React.FC = () => {
     const [countType, setCountType] = useState<'words' | 'chars'>('words');
     const [seoKeyword, setSeoKeyword] = useState<string>('');
     const [theme, setTheme] = useState<'light' | 'dark'>('dark');
+    const generationIdRef = useRef(0);
 
     useEffect(() => {
-        const isDark = document.documentElement.classList.contains('dark');
-        setTheme(isDark ? 'dark' : 'light');
         try {
+            const storedTheme = localStorage.getItem('theme');
+            if (storedTheme === 'light' || storedTheme === 'dark') {
+                setTheme(storedTheme);
+                document.documentElement.classList.toggle('dark', storedTheme === 'dark');
+            } else {
+                const isDark = document.documentElement.classList.contains('dark');
+                setTheme(isDark ? 'dark' : 'light');
+            }
             const savedProfile = localStorage.getItem('userProfile');
             if (savedProfile) setUserProfile(JSON.parse(savedProfile));
             const articlesFromStorage = localStorage.getItem('savedArticles');
@@ -75,6 +82,12 @@ const App: React.FC = () => {
             setError('Please enter a topic.');
             return;
         }
+        if (isRegeneration && !generatedArticle) {
+            setError('No existing article available to regenerate.');
+            return;
+        }
+        generationIdRef.current += 1;
+        const generationId = generationIdRef.current;
         const currentTopic = isRegeneration ? generatedArticle!.topic : topic;
         const currentSeoKeyword = isRegeneration ? generatedArticle!.seoKeywordUsed : seoKeyword.trim() || undefined;
 
@@ -135,9 +148,17 @@ const App: React.FC = () => {
             );
             
             let finalContent = '';
+            let isStale = false;
             for await (const chunk of contentStream) {
+                if (generationIdRef.current !== generationId) {
+                    isStale = true;
+                    break;
+                }
                 finalContent += chunk;
                 setGeneratedArticle(prev => prev ? { ...prev, content: finalContent } : null);
+            }
+            if (isStale) {
+                return;
             }
             updateStepStatus(2, 'complete');
 
@@ -152,7 +173,7 @@ const App: React.FC = () => {
                 if(imageUrl) {
                     const placeholderSrc = `src="${prompt.placeholder}"`;
                     const finalImgTagPortion = `src="${imageUrl}" alt="${prompt.prompt.substring(0, 100)}"`;
-                    contentWithImages = contentWithImages.replace(placeholderSrc, finalImgTagPortion);
+                    contentWithImages = contentWithImages.replaceAll(placeholderSrc, finalImgTagPortion);
                 }
             });
             updateStepStatus(3, 'complete');
