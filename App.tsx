@@ -13,8 +13,9 @@ import { SunIcon } from './components/icons/SunIcon';
 import { LightbulbIcon } from './components/icons/LightbulbIcon';
 import { SEOWorkbenchIcon } from './components/icons/SEOWorkbenchIcon';
 import { StatusIcon } from './components/icons/StatusIcon';
+import HRDashboard from './components/HRDashboard';
 
-type Tab = 'composer' | 'research' | 'optimise';
+type Tab = 'composer' | 'research' | 'optimise' | 'hr';
 
 const App: React.FC = () => {
     const [activeTab, setActiveTab] = useState<Tab>('composer');
@@ -234,6 +235,9 @@ const App: React.FC = () => {
                     <button onClick={() => setActiveTab('optimise')} className={`p-3 rounded-xl transition-all ${activeTab === 'optimise' ? 'bg-white/10 text-blue-400' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`}>
                         <SEOWorkbenchIcon className="w-5 h-5" />
                     </button>
+                    <button onClick={() => setActiveTab('hr')} className={`p-3 rounded-xl transition-all ${activeTab === 'hr' ? 'bg-white/10 text-blue-400' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`}>
+                        <StatusIcon className="w-5 h-5" />
+                    </button>
                 </div>
                 <div className="mt-auto flex flex-col space-y-4">
                     <button onClick={() => setIsDrawerOpen(true)} className="p-3 text-gray-500 hover:text-gray-300 relative">
@@ -250,7 +254,7 @@ const App: React.FC = () => {
             <aside className="w-[380px] flex flex-col border-r border-premium-border bg-premium-dark/50 backdrop-blur-xl flex-shrink-0">
                 <div className="h-16 flex items-center px-8 border-b border-premium-border">
                     <h2 className="text-sm font-bold uppercase tracking-widest text-gray-400">
-                        {activeTab === 'composer' ? 'Content Engine' : activeTab === 'research' ? 'Knowledge Graph' : 'SEO Audit'}
+                        {activeTab === 'composer' ? 'Content Engine' : activeTab === 'research' ? 'Knowledge Graph' : activeTab === 'optimise' ? 'SEO Audit' : 'HR Dashboard'}
                     </h2>
                 </div>
 
@@ -301,6 +305,7 @@ const App: React.FC = () => {
 
                     {activeTab === 'research' && <TopicExplorer onIdeaSelect={(idea) => { setTopic(idea.title); setSeoKeyword(idea.keywords[0] || ''); setActiveTab('composer'); }} />}
                     {activeTab === 'optimise' && <SEOWorkbench topic={topic} selectedKeyword={seoKeyword} onKeywordSelect={(k) => { setSeoKeyword(k.keyword); setActiveTab('composer'); }} analysis={generatedArticle?.seoAnalysis ?? null} />}
+                    {activeTab === 'hr' && <HRDashboard />}
                 </div>
 
                 {activeTab === 'composer' && (
@@ -323,14 +328,14 @@ const App: React.FC = () => {
             <main className="flex-1 relative overflow-y-auto custom-scrollbar bg-[#05080E]">
                 <div className="absolute inset-0 opacity-20 pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle at 2px 2px, rgba(255,255,255,0.05) 1px, transparent 0)', backgroundSize: '40px 40px' }}></div>
                 <div className="relative min-h-full py-16 px-4 lg:px-20 flex justify-center">
-                     <ArticleDisplay 
+                     {activeTab === 'hr' ? <HRDashboard /> : <ArticleDisplay 
                         article={generatedArticle}
                         isLoading={isLoading}
                         isRegeneratingLayout={isRegeneratingLayout}
                         onSave={handleSaveArticle}
                         onRegenerateLayout={() => executeGeneration(true)}
                         generationSteps={generationSteps}
-                    />
+                    />}
                 </div>
             </main>
 
